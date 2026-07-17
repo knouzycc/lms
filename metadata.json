@@ -1,0 +1,8 @@
+{
+  "name": "Remix: منصة اليسر - Elyusr Academy",
+  "description": "منصة تعليمية متكاملة  للطلاب تشمل تسجيل الدخول، نظام الدفع، ومتابعة الكورسات والاختبارات التفاعلية",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
