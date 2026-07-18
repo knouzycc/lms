@@ -96,11 +96,11 @@ export default function App() {
     enableAntiScreenshotAlert: true
   });
   const [platformSettings, setPlatformSettings] = React.useState<PlatformSettings>({
-    platformName: "منصة اليسر التعليمية الشاملة 🌟",
+    platformName: "منصة اليسر التعليمية 🌟",
     logoUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=120",
-    contactPhone: "01111111111",
-    contactWhatsapp: "20111111111",
-    contactEmail: "support@yusr-academy.com",
+    contactPhone: "01008889818",
+    contactWhatsapp: "201008889818",
+    contactEmail: "admin@yasser.cc",
     contactTelegram: "t.me/yusr_academy",
     contactFacebook: "facebook.com/yusr_academy",
     ads: []
@@ -168,9 +168,34 @@ export default function App() {
         }));
         setStudentsList(students.length > 0 ? students : DEFAULT_STUDENTS);
 
-        // Always log out from all accounts on entering the website
-        localStorage.removeItem("math_academy_user");
-        setUser(null);
+        // Restore user login state from local storage and sync with latest firestore data
+        const savedUserStr = localStorage.getItem("math_academy_user");
+        if (savedUserStr) {
+          try {
+            const savedUser = JSON.parse(savedUserStr);
+            const dbUser = dbUsers.find((u) => u.phone === savedUser.phone || u.id === savedUser.id);
+            if (dbUser) {
+              setUser(dbUser);
+              if (dbUser.role === "admin" || dbUser.role === "teacher") {
+                setCurrentTab("admin-dashboard");
+              } else {
+                setCurrentTab("student-dashboard");
+              }
+            } else {
+              setUser(savedUser);
+              if (savedUser.role === "admin" || savedUser.role === "teacher") {
+                setCurrentTab("admin-dashboard");
+              } else {
+                setCurrentTab("student-dashboard");
+              }
+            }
+          } catch (e) {
+            console.error("Error parsing stored user:", e);
+            setUser(null);
+          }
+        } else {
+          setUser(null);
+        }
       } catch (err) {
         console.error("Error loading Firestore data:", err);
       } finally {
@@ -269,7 +294,7 @@ export default function App() {
           name,
           phone,
           role: "student",
-          walletBalance: 50, // bonus welcome balance
+          walletBalance: 0, // bonus welcome balance
           enrolledCourseIds: [],
           quizAttempts: {},
           completedLectures: [],
@@ -328,7 +353,7 @@ export default function App() {
       if (!adminUser) {
         adminUser = {
           id: "admin-default",
-          name: "مدير المنصة الشاملة",
+          name: "مدير المنصة",
           phone: adminPhone,
           role: "admin",
           walletBalance: 999999,
@@ -340,7 +365,7 @@ export default function App() {
       } else {
         // Ensure its role is "admin"
         adminUser.role = "admin";
-        adminUser.name = "مدير المنصة الشاملة";
+        adminUser.name = "مدير المنصة";
         await saveUserInFirestore(adminUser);
       }
       setUser(adminUser);
@@ -1118,7 +1143,7 @@ export default function App() {
         {currentTab === "landing-about" && (
           <div className="max-w-4xl mx-auto py-12 px-4 space-y-8 text-right" id="about-tab-content">
             <h2 className="text-3xl font-black text-gray-900 border-b border-gray-100 pb-4">
-              من نحن - {platformSettings?.platformName || "منصة اليسر التعليمية الشاملة 🌟"}
+              من نحن - {platformSettings?.platformName || "منصة اليسر التعليمية 🌟"}
             </h2>
             <p className="text-gray-600 leading-relaxed text-base">
               {platformSettings?.platformName || "منصة اليسر التعليمية"} هي منصة إلكترونية رائدة متكاملة تقدم أرقى مستويات الشرح والتأسيس لطلاب الثانوية العامة والأزهرية في شتى المواد الدراسية (الرياضيات، الفيزياء، الكيمياء، الأحياء، واللغات) بمصر والوطن العربي.
@@ -1167,9 +1192,9 @@ export default function App() {
                 <div>
                   {platformSettings?.supportInfo || `نحن هنا لخدمتكم ومساعدتكم طوال اليوم!
 للأسئلة والاستفسارات وحل المشاكل التقنية أو المالية:
-- واتساب الدعم الفني: 20111111111
-- رقم الاتصال المباشر: 01111111111
-- البريد الإلكتروني: support@yusr-academy.com
+- واتساب الدعم الفني: 201008889818
+- رقم الاتصال المباشر: 01008889818
+- البريد الإلكتروني: admin@yasser.cc
 يمكنك أيضاً فتح تذكرة دعم فني مباشرة من لوحة التحكم الخاصة بك لمتابعة الطلبات.`}
                 </div>
               </div>
@@ -1178,20 +1203,31 @@ export default function App() {
                 <h3 className="text-lg font-black text-gray-900 border-b border-gray-100 pb-2">أرسل لنا استفسارك مباشرة ✉️</h3>
                 <form onSubmit={(e) => {
                   e.preventDefault();
-                  alert("تم إرسال رسالتك بنجاح وسيتصل بك فريق الدعم الفني قريباً! 🎉");
-                  (e.target as HTMLFormElement).reset();
+                  const form = e.currentTarget;
+                  const formData = new FormData(form);
+                  const fullName = formData.get("fullName") || "";
+                  const phone = formData.get("phone") || "";
+                  const message = formData.get("message") || "";
+                  
+                  const emailSubject = `استفسار من الطالب: ${fullName}`;
+                  const emailBody = `الاسم بالكامل: ${fullName}\nرقم الهاتف: ${phone}\n\nالرسالة:\n${message}`;
+                  
+                  window.location.href = `mailto:konouz55@gmail.com?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+                  
+                  alert("تم تجهيز رسالتك للإرسال عبر البريد الإلكتروني! 🎉");
+                  form.reset();
                 }} className="space-y-4">
                   <div>
                     <label className="text-xs font-bold text-gray-700 block mb-1">الاسم بالكامل:</label>
-                    <input type="text" required className="w-full px-3 py-2 border border-gray-250 rounded-xl text-xs" placeholder="مثال: أحمد محمد" />
+                    <input type="text" name="fullName" required className="w-full px-3 py-2 border border-gray-250 rounded-xl text-xs" placeholder="مثال: أحمد محمد" />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-gray-700 block mb-1">رقم الهاتف:</label>
-                    <input type="tel" required className="w-full px-3 py-2 border border-gray-250 rounded-xl text-xs text-left" placeholder="01xxxxxxxxx" />
+                    <input type="tel" name="phone" required className="w-full px-3 py-2 border border-gray-250 rounded-xl text-xs text-left" placeholder="01xxxxxxxxx" />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-gray-700 block mb-1">موضوع الاستفسار:</label>
-                    <textarea required rows={4} className="w-full px-3 py-2 border border-gray-250 rounded-xl text-xs" placeholder="اكتب تفاصيل استفسارك أو المشكلة التي تواجهها هنا..." />
+                    <textarea name="message" required rows={4} className="w-full px-3 py-2 border border-gray-250 rounded-xl text-xs" placeholder="اكتب تفاصيل استفسارك أو المشكلة التي تواجهها هنا..." />
                   </div>
                   <button type="submit" className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-black rounded-xl text-xs transition-colors cursor-pointer">
                     إرسال الاستفسار الآن 🚀

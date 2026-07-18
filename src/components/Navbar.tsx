@@ -106,9 +106,6 @@ export default function Navbar({
                 <span className="block text-base sm:text-lg font-extrabold text-gray-900 tracking-tight group-hover:text-red-600 transition-colors">
                   {platformSettings?.platformName || "منصة اليسر التعليمية"}
                 </span>
-                <span className="block text-[10px] sm:text-xs text-red-600 font-medium">
-                  المنصة الشاملة لجميع المواد الدراسية 💯
-                </span>
               </div>
             </button>
           </div>

@@ -51,13 +51,70 @@ import {
 } from "recharts";
 
 function AdBanner({ ad }: { ad: AdCampaign }) {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!ad || !ad.isActive || ad.type !== "html" || !containerRef.current) return;
+
+    // Clear previous contents
+    containerRef.current.innerHTML = "";
+
+    // Parse the HTML string
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(ad.htmlCode || "", "text/html");
+    
+    // Move all non-script children to a fragment
+    const fragment = document.createDocumentFragment();
+    const elements = Array.from(doc.body.childNodes);
+    const scriptsToExecute: HTMLScriptElement[] = [];
+
+    elements.forEach((node) => {
+      if (node.nodeName.toLowerCase() === "script") {
+        scriptsToExecute.push(node as HTMLScriptElement);
+      } else {
+        fragment.appendChild(node.cloneNode(true));
+      }
+    });
+
+    // Append non-script elements first
+    containerRef.current.appendChild(fragment);
+
+    // Execute scripts sequentially
+    scriptsToExecute.forEach((script) => {
+      const newScript = document.createElement("script");
+      
+      // Copy all attributes
+      Array.from(script.attributes).forEach((attr) => {
+        newScript.setAttribute(attr.name, attr.value);
+      });
+
+      if (script.src) {
+        newScript.src = script.src;
+        newScript.async = true;
+      } else {
+        newScript.textContent = script.textContent;
+      }
+
+      containerRef.current?.appendChild(newScript);
+    });
+
+    // Trigger Google AdSense push if needed
+    try {
+      if (window && (window as any).adsbygoogle) {
+        ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+      }
+    } catch (e) {
+      console.warn("Google AdSense push error", e);
+    }
+  }, [ad]);
+
   if (!ad || !ad.isActive) return null;
 
   if (ad.type === "html") {
     return (
       <div 
-        className="w-full overflow-hidden rounded-3xl" 
-        dangerouslySetInnerHTML={{ __html: ad.htmlCode || "" }} 
+        ref={containerRef}
+        className="w-full overflow-hidden rounded-3xl flex justify-center items-center" 
       />
     );
   }

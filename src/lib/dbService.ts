@@ -70,15 +70,15 @@ const DEFAULT_VIDEO_SETTINGS: VideoSettings = {
 };
 
 const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
-  platformName: "منصة اليسر التعليمية الشاملة 🌟",
+  platformName: "منصة اليسر التعليمية 🌟",
   logoUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=120",
-  contactPhone: "01111111111",
-  contactWhatsapp: "20111111111",
-  contactEmail: "support@yusr-academy.com",
+  contactPhone: "01008889818",
+  contactWhatsapp: "201008889818",
+  contactEmail: "admin@yasser.cc",
   contactTelegram: "t.me/yusr_academy",
   contactFacebook: "facebook.com/yusr_academy",
   cloudflareEnabled: true,
-  cloudflareEmail: "admin@yusr-academy.com",
+  cloudflareEmail: "admin@yasser.cc",
   cloudflareApiKey: "cf_api_key_8732198075bc9812df",
   cloudflareZoneId: "zone_id_092183709b183ac872a",
   cloudflareTurnstileSiteKey: "0x4AAAAAAABBBCCC111222",
@@ -117,9 +117,9 @@ const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
 3. تحتفظ المنصة بالحق في اتخاذ الإجراءات القانونية وحظر الحساب فوراً في حال مخالفة الشروط.`,
   supportInfo: `نحن هنا لخدمتكم ومساعدتكم طوال اليوم!
 للأسئلة والاستفسارات وحل المشاكل التقنية أو المالية:
-- واتساب الدعم الفني: 20111111111
-- رقم الاتصال المباشر: 01111111111
-- البريد الإلكتروني: support@yusr-academy.com
+- واتساب الدعم الفني: 201008889818
+- رقم الاتصال المباشر: 01008889818
+- البريد الإلكتروني: admin@yasser.cc
 يمكنك أيضاً فتح تذكرة دعم فني مباشرة من لوحة التحكم الخاصة بك لمتابعة الطلبات.`
 };
 

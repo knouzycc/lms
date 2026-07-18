@@ -22,13 +22,70 @@ import {
 import { Course, GradeLevel, CourseCategory, User, PlatformSettings, AdCampaign } from "../types";
 
 export function AdBanner({ ad }: { ad: AdCampaign }) {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!ad || !ad.isActive || ad.type !== "html" || !containerRef.current) return;
+
+    // Clear previous contents
+    containerRef.current.innerHTML = "";
+
+    // Parse the HTML string
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(ad.htmlCode || "", "text/html");
+    
+    // Move all non-script children to a fragment
+    const fragment = document.createDocumentFragment();
+    const elements = Array.from(doc.body.childNodes);
+    const scriptsToExecute: HTMLScriptElement[] = [];
+
+    elements.forEach((node) => {
+      if (node.nodeName.toLowerCase() === "script") {
+        scriptsToExecute.push(node as HTMLScriptElement);
+      } else {
+        fragment.appendChild(node.cloneNode(true));
+      }
+    });
+
+    // Append non-script elements first
+    containerRef.current.appendChild(fragment);
+
+    // Execute scripts sequentially
+    scriptsToExecute.forEach((script) => {
+      const newScript = document.createElement("script");
+      
+      // Copy all attributes
+      Array.from(script.attributes).forEach((attr) => {
+        newScript.setAttribute(attr.name, attr.value);
+      });
+
+      if (script.src) {
+        newScript.src = script.src;
+        newScript.async = true;
+      } else {
+        newScript.textContent = script.textContent;
+      }
+
+      containerRef.current?.appendChild(newScript);
+    });
+
+    // Trigger Google AdSense push if needed
+    try {
+      if (window && (window as any).adsbygoogle) {
+        ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+      }
+    } catch (e) {
+      console.warn("Google AdSense push error", e);
+    }
+  }, [ad]);
+
   if (!ad || !ad.isActive) return null;
 
   if (ad.type === "html") {
     return (
       <div 
-        className="w-full overflow-hidden rounded-2xl" 
-        dangerouslySetInnerHTML={{ __html: ad.htmlCode || "" }} 
+        ref={containerRef}
+        className="w-full overflow-hidden rounded-2xl flex justify-center items-center" 
       />
     );
   }
@@ -147,172 +204,87 @@ export default function LandingPage({
       <section className="relative overflow-hidden bg-white py-12 md:py-20 border-b border-gray-100" id="hero-section">
         <div className="absolute inset-0 bg-radial from-red-50/20 via-transparent to-transparent pointer-events-none" />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-            {/* Right column: Content in Arabic */}
-            <div className="lg:col-span-7 text-right space-y-6">
-              <motion.div
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5 }}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-50 text-red-600 text-sm font-bold border border-red-100"
-              >
-                <GraduationCap className="w-4 h-4" />
-                <span>أقوى منصة تعليمية شاملة للمرحلة الثانوية 🏆</span>
-              </motion.div>
+          <div className="max-w-4xl mx-auto text-center space-y-6 flex flex-col items-center justify-center">
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-50 text-red-600 text-sm font-bold border border-red-100"
+            >
+              <GraduationCap className="w-4 h-4" />
+              <span>أقوى منصة تعليمية للمرحلة الثانوية 🏆</span>
+            </motion.div>
 
-              <motion.h1
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.1 }}
-                className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-gray-900 leading-tight"
-              >
-                افهم موادك الدراسية <span className="text-red-600 relative inline-block">
-                  بكل سهولة
-                  <span className="absolute left-0 bottom-1 w-full h-2 bg-red-200/50 -z-10" />
-                </span> وتفوق في امتحاناتك
-              </motion.h1>
+            <motion.h1
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1 }}
+              className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-gray-900 leading-tight text-center"
+            >
+              افهم موادك الدراسية <span className="text-red-600 relative inline-block">
+                بكل سهولة
+                <span className="absolute left-0 bottom-1 w-full h-2 bg-red-200/50 -z-10" />
+              </span> وتفوق في امتحاناتك
+            </motion.h1>
 
-              <motion.p
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.2 }}
-                className="text-lg text-gray-600 max-w-2xl leading-relaxed"
-              >
-                مع نخبة من <span className="font-extrabold text-gray-900">كبار معلمي مصر</span> بقيادة الأستاذ ياسر أبوستيت، نوفر لك شرحاً تفاعلياً وافياً ومبسطاً لكل المواد الدراسية (الرياضيات، الفيزياء، الكيمياء، اللغات، والأدبيات)، بالإضافة لأقوى بنك أسئلة وتدريبات تفاعلية تضمن لك الـ 100%.
-              </motion.p>
+            <motion.p
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+              className="text-lg text-gray-600 max-w-2xl leading-relaxed text-center"
+            >
+              مع نخبة من <span className="font-extrabold text-gray-900">كبار معلمي مصر</span> بقيادة الأستاذ ياسر أبوستيت، نوفر لك شرحاً تفاعلياً وافياً ومبسطاً لكل المواد الدراسية (الرياضيات، الفيزياء، الكيمياء، اللغات، والأدبيات)، بالإضافة لأقوى بنك أسئلة وتدريبات تفاعلية تضمن لك الـ 100%.
+            </motion.p>
 
-              <motion.div
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.3 }}
-                className="flex flex-wrap gap-4 justify-start pt-4"
-              >
-                {user ? (
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.3 }}
+              className="flex flex-wrap gap-4 justify-center pt-4"
+            >
+              {user ? (
+                <button
+                  onClick={() => onChangeTab("student-dashboard")}
+                  className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-extrabold px-8 py-4 rounded-2xl transition-all shadow-lg shadow-red-200 cursor-pointer text-base"
+                >
+                  <span>لوحة تحكم الطالب ومتابعة كورساتي</span>
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+              ) : (
+                <>
                   <button
-                    onClick={() => onChangeTab("student-dashboard")}
+                    onClick={onOpenAuth}
                     className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-extrabold px-8 py-4 rounded-2xl transition-all shadow-lg shadow-red-200 cursor-pointer text-base"
                   >
-                    <span>لوحة تحكم الطالب ومتابعة كورساتي</span>
+                    <span>اشترك وابدأ التعلم الآن</span>
                     <ArrowLeft className="w-5 h-5" />
                   </button>
-                ) : (
-                  <>
-                    <button
-                      onClick={onOpenAuth}
-                      className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-extrabold px-8 py-4 rounded-2xl transition-all shadow-lg shadow-red-200 cursor-pointer text-base"
-                    >
-                      <span>اشترك وابدأ التعلم الآن</span>
-                      <ArrowLeft className="w-5 h-5" />
-                    </button>
-                    <a
-                      href="#courses"
-                      className="flex items-center justify-center border-2 border-gray-200 hover:border-red-600 hover:text-red-600 text-gray-700 font-extrabold px-8 py-4 rounded-2xl transition-all cursor-pointer text-base"
-                    >
-                      تصفح الكورسات المتاحة
-                    </a>
-                  </>
-                )}
-              </motion.div>
+                  <a
+                    href="#courses"
+                    className="flex items-center justify-center border-2 border-gray-200 hover:border-red-600 hover:text-red-600 text-gray-700 font-extrabold px-8 py-4 rounded-2xl transition-all cursor-pointer text-base"
+                  >
+                    تصفح الكورسات المتاحة
+                  </a>
+                </>
+              )}
+            </motion.div>
 
-              {/* Quick info row */}
-              <div className="grid grid-cols-3 gap-4 pt-6 border-t border-gray-100">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
-                  <span className="text-sm font-semibold text-gray-700">امتحانات فورية</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
-                  <span className="text-sm font-semibold text-gray-700">ملخصات PDF ممتازة</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
-                  <span className="text-sm font-semibold text-gray-700">دعم فني متكامل</span>
-                </div>
+            {/* Quick info row */}
+            <div className="grid grid-cols-3 gap-4 pt-6 border-t border-gray-100 w-full max-w-lg">
+              <div className="flex items-center justify-center gap-2">
+                <CheckCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                <span className="text-sm font-semibold text-gray-700">امتحانات فورية</span>
+              </div>
+              <div className="flex items-center justify-center gap-2">
+                <CheckCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                <span className="text-sm font-semibold text-gray-700">ملخصات PDF ممتازة</span>
+              </div>
+              <div className="flex items-center justify-center gap-2">
+                <CheckCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                <span className="text-sm font-semibold text-gray-700">دعم فني متكامل</span>
               </div>
             </div>
-
-            {/* Left column: Mathematical Illustration or Stylized UI mock */}
-            <div className="lg:col-span-5 relative" id="hero-graphics">
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.6 }}
-                className="relative bg-gradient-to-tr from-red-600 to-rose-500 rounded-3xl p-8 text-white shadow-2xl overflow-hidden aspect-square flex flex-col justify-between"
-              >
-                {/* Decorative circles and mathematical functions */}
-                <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-20 -mt-20 pointer-events-none" />
-                <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full -ml-10 -mb-10 pointer-events-none" />
-                
-                {/* Simulated math formulas on background */}
-                <div className="absolute top-24 left-6 text-white/10 font-mono text-xl select-none leading-relaxed pointer-events-none">
-                  f(x) = ∫ (3x² + sin x) dx <br />
-                  lim x→0 (sin x / x) = 1 <br />
-                  e^(iπ) + 1 = 0 <br />
-                  sin²θ + cos²θ = 1
-                </div>
-
-                <div className="flex justify-between items-start z-10">
-                  <span className="bg-white/20 backdrop-blur-md text-white font-extrabold px-3 py-1.5 rounded-lg text-sm">
-                    الصف الثالث الثانوي
-                  </span>
-                  <div className="w-10 h-10 rounded-xl bg-white text-red-600 flex items-center justify-center font-bold text-xl shadow-lg shadow-black/10">
-                    ∑
-                  </div>
-                </div>
-
-                <div className="space-y-4 z-10">
-                  <div className="flex items-center gap-2 bg-black/15 backdrop-blur-md p-3 rounded-2xl border border-white/10">
-                    <Zap className="w-5 h-5 text-yellow-300 fill-yellow-300" />
-                    <span className="text-sm font-bold">بث مباشر للمراجعات والامتحانات أسبوعياً</span>
-                  </div>
-
-                  <div className="p-5 bg-white text-gray-900 rounded-2xl space-y-3 shadow-lg">
-                    <span className="text-xs font-bold text-red-600 uppercase tracking-wider block">
-                      المحاضرة الأكثر طلباً ⚡
-                    </span>
-                    <h3 className="text-base font-extrabold text-gray-900 leading-snug">
-                      تطبيقات التفاضل والتكامل الكبرى والحل بالنظر
-                    </h3>
-                    <div className="flex justify-between items-center text-xs text-gray-500">
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5 text-gray-400" /> 2 ساعة شرح
-                      </span>
-                      <span className="font-bold text-emerald-600">شاملة ملخص PDF واختبار</span>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            </div>
           </div>
-        </div>
-      </section>
-
-      {/* Trust Stats Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" id="stats-section">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-          {stats.map((stat, idx) => {
-            const Icon = stat.icon;
-            return (
-              <motion.div
-                key={stat.id}
-                initial={{ opacity: 0, y: 15 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.4, delay: idx * 0.1 }}
-                className="bg-white border border-gray-100 rounded-2xl p-6 text-center shadow-xs flex flex-col items-center justify-center space-y-2 hover:border-red-100 hover:shadow-md transition-all"
-              >
-                <div className={`p-3 rounded-xl ${stat.color} mb-1`}>
-                  <Icon className="w-6 h-6" />
-                </div>
-                <span className="block text-2xl sm:text-3xl font-extrabold text-gray-900 font-mono">
-                  {stat.value}
-                </span>
-                <span className="block text-xs sm:text-sm font-bold text-gray-500">
-                  {stat.label}
-                </span>
-              </motion.div>
-            );
-          })}
         </div>
       </section>
 
@@ -603,7 +575,7 @@ export default function LandingPage({
           </div>
         )}
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-gray-500 pt-4 border-t border-gray-50">
-          <p>© 2026 {platformSettings?.platformName || "منصة اليسر التعليمية الشاملة 🌟"}. جميع الحقوق محفوظة.</p>
+          <p>© 2026 {platformSettings?.platformName || "منصة اليسر التعليمية 🌟"}. جميع الحقوق محفوظة.</p>
           <div className="flex gap-4">
             <span onClick={() => onChangeTab("landing-privacy")} className="hover:text-red-600 cursor-pointer">سياسة الخصوصية</span>
             <span onClick={() => onChangeTab("landing-terms")} className="hover:text-red-600 cursor-pointer">شروط الاستخدام</span>

@@ -101,7 +101,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
 
       if (isLogin) {
         if (isAdminBypass) {
-          onLoginSuccess("مدير المنصة الشاملة", phone, "admin", grade);
+          onLoginSuccess("مدير المنصة", phone, "admin", grade);
           setSuccessMsg("تم تسجيل الدخول بصلاحيات مدير المنصة (صلاحيات غير محدودة) بنجاح! جاري الانتقال لوحة التحكم... 👑");
           setTimeout(() => {
             onClose();
@@ -177,7 +177,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
           name: name.trim(),
           phone,
           role: "student",
-          walletBalance: 50, // welcome balance
+          walletBalance: 0, // welcome balance
           enrolledCourseIds: [],
           quizAttempts: {},
           completedLectures: [],
@@ -249,7 +249,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
             </h2>
             <p className="text-xs text-gray-500 font-medium">
               {isLogin
-                ? "مرحباً بك مجدداً في منصة اليسر التعليمية الشاملة"
+                ? "مرحباً بك مجدداً في منصة اليسر التعليمية"
                 : "سجل بياناتك الرسمية والصحيحة لتتمكن من تفعيل الكورسات فورياً"}
             </p>
           </div>

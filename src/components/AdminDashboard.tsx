@@ -49,7 +49,8 @@ import {
   Activity,
   Calendar,
   Cloud,
-  Globe
+  Globe,
+  Github
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -505,7 +506,7 @@ export default function AdminDashboard({
   // State for adding a student
   const [studentName, setStudentName] = React.useState("");
   const [studentPhone, setStudentPhone] = React.useState("");
-  const [studentBalance, setStudentBalance] = React.useState(100);
+  const [studentBalance, setStudentBalance] = React.useState(0);
   const [studentSuccess, setStudentSuccess] = React.useState("");
 
   // State for modifying student balance
@@ -570,7 +571,7 @@ export default function AdminDashboard({
   const [videoSettingsSuccess, setVideoSettingsSuccess] = React.useState("");
 
   // Platform Settings editing states
-  const [tempPlatformName, setTempPlatformName] = React.useState(platformSettings?.platformName || "منصة اليسر التعليمية الشاملة 🌟");
+  const [tempPlatformName, setTempPlatformName] = React.useState(platformSettings?.platformName || "منصة اليسر التعليمية 🌟");
   const [tempLogoUrl, setTempLogoUrl] = React.useState(platformSettings?.logoUrl || "");
   const [tempContactPhone, setTempContactPhone] = React.useState(platformSettings?.contactPhone || "");
   const [tempContactWhatsapp, setTempContactWhatsapp] = React.useState(platformSettings?.contactWhatsapp || "");
@@ -605,7 +606,7 @@ export default function AdminDashboard({
   const [dnsCheckStatus, setDnsCheckStatus] = React.useState<"idle" | "checking" | "success" | "error">("idle");
   const [dnsCheckResult, setDnsCheckResult] = React.useState<string>("");
   const [dnsWizardStep, setDnsWizardStep] = React.useState<number>(1);
-  const [cfLinkMethod, setCfLinkMethod] = React.useState<"dns" | "worker">("worker");
+  const [cfLinkMethod, setCfLinkMethod] = React.useState<"dns" | "worker" | "github">("github");
 
   const handleSimulateDnsCheck = () => {
     if (!userDomain.trim()) {
@@ -1091,7 +1092,7 @@ export default function AdminDashboard({
             <span>{user?.role === "admin" ? "لوحة تحكم المشرف العام والمالك للمنصة 💻" : "لوحة تحكم المعلم المساعد والأستاذ 👨‍🏫"}</span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-black">
-            {user?.role === "admin" ? "التحكم المركزي بالأكاديمية الشاملة 👑" : "لوحة المعلم - إدارة المحاضرات والمسابقات 📚"}
+            {user?.role === "admin" ? "التحكم المركزي بالأكاديمية 👑" : "لوحة المعلم - إدارة المحاضرات والمسابقات 📚"}
           </h2>
           <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
             {user?.role === "admin"
@@ -2936,7 +2937,7 @@ export default function AdminDashboard({
                         value={tempPlatformName}
                         onChange={(e) => setTempPlatformName(e.target.value)}
                         className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-xs outline-hidden focus:border-red-500 font-bold"
-                        placeholder="مثال: منصة اليسر التعليمية الشاملة"
+                        placeholder="مثال: منصة اليسر التعليمية"
                       />
                     </div>
 
@@ -3592,22 +3593,34 @@ export default function AdminDashboard({
                     </div>
 
                     {/* Method Selector Tabs */}
-                    <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl self-start sm:self-center">
+                    <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-xl self-start sm:self-center">
+                      <button
+                        type="button"
+                        onClick={() => setCfLinkMethod("github")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1 ${
+                          cfLinkMethod === "github"
+                            ? "bg-purple-700 text-white shadow-xs"
+                            : "text-gray-600 hover:text-gray-900 hover:bg-white/50"
+                        }`}
+                      >
+                        <Github className="w-3.5 h-3.5" />
+                        🐱 الرفع على GitHub والربط بالدومين (سهل وسريع ⚡)
+                      </button>
                       <button
                         type="button"
                         onClick={() => setCfLinkMethod("worker")}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1 ${
                           cfLinkMethod === "worker"
                             ? "bg-orange-600 text-white shadow-xs"
                             : "text-gray-600 hover:text-gray-900 hover:bg-white/50"
                         }`}
                       >
-                        ⚡ طريقة الوكيل الذكي (Workers) - موصى بها
+                        ⚡ طريقة الوكيل الذكي (Workers)
                       </button>
                       <button
                         type="button"
                         onClick={() => setCfLinkMethod("dns")}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1 ${
                           cfLinkMethod === "dns"
                             ? "bg-orange-600 text-white shadow-xs"
                             : "text-gray-600 hover:text-gray-900 hover:bg-white/50"
@@ -3619,8 +3632,146 @@ export default function AdminDashboard({
                   </div>
                 </div>
 
-                {cfLinkMethod === "worker" ? (
-                  <div className="space-y-6 text-right">
+                {cfLinkMethod === "github" ? (
+                  <div className="space-y-6 text-right font-sans">
+                    <div className="bg-purple-50 border border-purple-100 rounded-2xl p-5 flex gap-4 items-start shadow-xs">
+                      <span className="text-2xl">⚡</span>
+                      <div className="space-y-1.5 text-purple-950">
+                        <h5 className="text-sm font-black">أسهل وأسرع طريقة لتشغيل موقعك على دومينك الخاص yasser.cc مجاناً 100%!</h5>
+                        <p className="text-xs leading-relaxed font-bold opacity-90">
+                          بما أن منصات التطوير السحابية تحتاج إعدادات متقدمة للربط المباشر، فإن أفضل وأقوى طريقة لتشغيل أكاديميتك على دومينك المخصص <strong className="font-black text-purple-900 underline">yasser.cc</strong> وبشكل مجاني بالكامل وبشهادة SSL آمنة هي عبر <strong className="font-extrabold text-purple-900">رفع الكود إلى GitHub ثم ربطه بخدمة Vercel أو GitHub Pages</strong>.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Option 1: Vercel - Highly Recommended */}
+                      <div className="border border-purple-100 bg-white hover:border-purple-300 rounded-2xl p-5 space-y-4 transition-all hover:shadow-xs flex flex-col justify-between">
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <span className="p-1.5 rounded-xl bg-black text-white text-[10px] font-black font-sans">▲</span>
+                            <h5 className="text-xs font-black text-gray-950">الخيار الأول: خدمة Vercel (موصى به لـ React & Vite)</h5>
+                          </div>
+                          <p className="text-[11px] text-gray-500 leading-relaxed font-bold">
+                            تعتبر Vercel المنصة السحابية الأقوى والأسهل لاستضافة تطبيقات React و TypeScript. تقوم بجلب الكود من مستودع الـ GitHub الخاص بك فوراً، وتقوم ببنائه وتفعيله، وتوفر شهادة أمان SSL تلقائية ومجانية لاسم النطاق الخاص بك!
+                          </p>
+                          <ul className="text-[11px] text-gray-600 font-bold space-y-2 list-disc pl-0 pr-4">
+                            <li>سريعة جداً وتدعم بناء التطبيق بضغطة زر واحدة.</li>
+                            <li>تحديث تلقائي للموقع بمجرد تعديل أو إضافة أي كود في مستودع GitHub.</li>
+                            <li>تمنحك لوحة تحكم كاملة لقياس سرعة الموقع وإحصائيات الزوار.</li>
+                          </ul>
+                        </div>
+
+                        <div className="pt-4 border-t border-gray-50 space-y-2">
+                          <span className="text-[10px] text-purple-700 font-black block">طريقة الربط بالدومين yasser.cc في Vercel:</span>
+                          <p className="text-[10px] text-gray-500 font-bold leading-relaxed">
+                            ادخل لوحة تحكم مشروعك في Vercel، اذهب إلى <strong className="text-gray-800">Settings &gt; Domains</strong>، واكتب الدومين <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-gray-800 font-bold">yasser.cc</span> ثم قم بإضافة سجل CNAME في حساب Cloudflare الخاص بك يوجه إلى <span className="font-mono bg-purple-50 text-purple-800 px-1 py-0.5 rounded font-bold">cname.vercel-dns.com</span>.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Option 2: GitHub Pages */}
+                      <div className="border border-gray-100 bg-white hover:border-purple-200 rounded-2xl p-5 space-y-4 transition-all hover:shadow-xs flex flex-col justify-between">
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <span className="p-1.5 rounded-xl bg-slate-900 text-white"><Github className="w-4 h-4" /></span>
+                            <h5 className="text-xs font-black text-gray-950">الخيار الثاني: استضافة GitHub Pages المجانية</h5>
+                          </div>
+                          <p className="text-[11px] text-gray-500 leading-relaxed font-bold">
+                            هي ميزة مقدمة مجاناً من شركة GitHub تتيح لك نشر وتفعيل المواقع الإلكترونية والملفات الساكنة مباشرة من مستودع الكود الخاص بك دون الحاجة لأي خوادم خارجية أو منصات إضافية.
+                          </p>
+                          <ul className="text-[11px] text-gray-600 font-bold space-y-2 list-disc pl-0 pr-4">
+                            <li>مثالية للمواقع الشخصية والصفحات التعريفية والخدمات الساكنة.</li>
+                            <li>استضافة مجانية ومستقرة 100% مدعومة من خوادم GitHub مباشرة.</li>
+                            <li>سهلة الاستخدام وتدعم اسم نطاقك المخصص مجاناً.</li>
+                          </ul>
+                        </div>
+
+                        <div className="pt-4 border-t border-gray-50 space-y-2">
+                          <span className="text-[10px] text-purple-700 font-black block">طريقة الربط بالدومين yasser.cc في GitHub Pages:</span>
+                          <p className="text-[10px] text-gray-500 font-bold leading-relaxed">
+                            في مستودع المشروع في GitHub، اذهب إلى تبويب <strong className="text-gray-800">Settings &gt; Pages</strong>، وفي حقل <strong className="text-gray-800">Custom Domain</strong> اكتب الدومين <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-gray-800 font-bold">yasser.cc</span>، وقم بتوجيه سجل الـ CNAME في كلوود فلير إلى حساب الـ GitHub Pages الخاص بك.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border border-purple-100 rounded-2xl p-5 space-y-4 bg-slate-50/50">
+                      <h5 className="text-xs font-black text-purple-900 flex items-center gap-1.5">
+                        <Github className="w-4 h-4" />
+                        دليل خطوات تصدير الكود وربطه بالتفصيل الممل:
+                      </h5>
+
+                      <div className="relative pl-0 pr-8 border-r-2 border-purple-200 space-y-5">
+                        <div className="relative">
+                          <span className="absolute -right-[41px] top-0.5 w-6 h-6 rounded-full bg-purple-700 text-white flex items-center justify-center font-mono text-xs font-black shadow-xs">
+                            1
+                          </span>
+                          <div className="space-y-1">
+                            <h6 className="text-xs font-black text-gray-900">تصدير مشروعك إلى مستودع GitHub:</h6>
+                            <p className="text-[11px] text-gray-500 font-bold leading-relaxed">
+                              اضغط على زر القائمة الجانبية أو أيقونة التصدير في واجهة التطوير الحالية (Google AI Studio Builder) في الزاوية العلوية، ثم اختر <strong className="text-slate-800">"Export to GitHub"</strong>. قم بالموافقة على الصلاحيات وسيتم إنشاء مستودع خاص (Repository) جديد فوراً يحتوي على الكود الكامل للمنصة!
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="relative">
+                          <span className="absolute -right-[41px] top-0.5 w-6 h-6 rounded-full bg-purple-700 text-white flex items-center justify-center font-mono text-xs font-black shadow-xs">
+                            2
+                          </span>
+                          <div className="space-y-1.5">
+                            <h6 className="text-xs font-black text-gray-900">التسجيل والربط بمنصة الاستضافة (Vercel - موصى به):</h6>
+                            <p className="text-[11px] text-gray-500 font-bold leading-relaxed">
+                              توجه إلى موقع <a href="https://vercel.com" target="_blank" rel="noopener noreferrer" className="text-purple-700 underline font-black font-mono">vercel.com</a> وسجل الدخول باستخدام حسابك في <strong className="text-gray-800">GitHub</strong>. اضغط على زر <strong className="text-slate-800">Add New &gt; Project</strong>، ثم اختر مستودع الكود الذي تم تصديره للتو واضغط على <strong className="text-purple-700 font-black">Import</strong>، ثم اضغط على زر <strong className="text-purple-700 font-black">Deploy</strong> وسيقوم النظام ببنائه خلال 30 ثانية فقط!
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="relative">
+                          <span className="absolute -right-[41px] top-0.5 w-6 h-6 rounded-full bg-purple-700 text-white flex items-center justify-center font-mono text-xs font-black shadow-xs">
+                            3
+                          </span>
+                          <div className="space-y-1">
+                            <h6 className="text-xs font-black text-gray-900">ربط الدومين المخصص yasser.cc:</h6>
+                            <p className="text-[11px] text-gray-500 font-bold leading-relaxed">
+                              في لوحة تحكم Vercel، اذهب إلى <strong className="text-slate-800">Settings &gt; Domains</strong>، واكتب الدومين الخاص بك <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-gray-800 font-bold">yasser.cc</span> أو <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-gray-800 font-bold">www.yasser.cc</span> ثم اضغط <strong className="text-purple-700 font-black">Add</strong>. ستعرض لك المنصة قيم الـ DNS المطلوبة لربط الدومين بنجاح.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="relative">
+                          <span className="absolute -right-[41px] top-0.5 w-6 h-6 rounded-full bg-purple-700 text-white flex items-center justify-center font-mono text-xs font-black shadow-xs">
+                            4
+                          </span>
+                          <div className="space-y-1">
+                            <h6 className="text-xs font-black text-gray-900">تحديث سجلات Cloudflare لتشغيل الدومين:</h6>
+                            <p className="text-[11px] text-gray-500 font-bold leading-relaxed">
+                              توجه إلى لوحة تحكم Cloudflare لحسابك، واذهب إلى إدارة سجلات الـ DNS للدومين <span className="font-mono text-gray-800 font-bold">yasser.cc</span>، وقم بإضافة سجل من نوع <strong className="text-purple-700 font-mono">CNAME</strong> بالاسم <span className="font-mono text-gray-800 font-bold">www</span> والقيمة <span className="font-mono text-purple-700 font-bold">cname.vercel-dns.com</span>، أو سجل من نوع <strong className="text-purple-700 font-mono">A</strong> بالاسم <span className="font-mono text-gray-800 font-bold">@</span> والقيمة <span className="font-mono text-purple-700 font-bold">76.76.21.21</span>. تأكد من ضبط الـ Proxy إلى <span className="text-amber-600 font-bold">DNS Only (معطل ☁️)</span> لتفادي أي تعارض في البداية، وسيتم تفعيل الموقع وشهادة الـ SSL بثوانٍ معدودة!
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-emerald-600 font-black block">🟢 ميزات هذه الطريقة</span>
+                        <p className="text-[11px] text-gray-600 font-bold leading-relaxed">
+                          عند الاستضافة عبر Vercel أو GitHub Pages، لن تواجه مشاكل الـ 522 Timeouts على الإطلاق، كما أن موقعك سيكون في غاية السرعة بفضل شبكات الـ CDN العالمية المتطورة!
+                        </p>
+                      </div>
+                      <a
+                        href="https://vercel.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-purple-700 hover:bg-purple-800 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl transition-all shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        زيارة منصة Vercel الآن ↗️
+                      </a>
+                    </div>
+                  </div>
+                ) : cfLinkMethod === "worker" ? (
+                  <div className="space-y-6 text-right font-sans">
                     <div className="bg-emerald-50/70 border border-emerald-100 rounded-2xl p-4 flex gap-3 items-start">
                       <span className="text-xl">💡</span>
                       <div className="space-y-1 text-emerald-900">
