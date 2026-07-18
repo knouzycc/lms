@@ -50,7 +50,11 @@ import {
   Calendar,
   Cloud,
   Globe,
-  Github
+  Github,
+  ShoppingBag,
+  Truck,
+  BookMarked,
+  Wallet
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -69,8 +73,8 @@ import {
   Tooltip,
   Legend
 } from "recharts";
-import { Course, PendingPayment, GradeLevel, CourseCategory, Teacher, ChargeCode, VideoSettings, PlatformSettings, AdCampaign, SupportTicket, TicketReply, LiveQuiz, LiveQuizParticipant, User, Question, Quiz } from "../types";
-import { fetchAllSupportTickets, saveSupportTicketInFirestore, fetchLiveQuizzes, saveLiveQuizInFirestore, deleteLiveQuizInFirestore, fetchAllUsers } from "../lib/dbService";
+import { Course, PendingPayment, GradeLevel, CourseCategory, Teacher, ChargeCode, VideoSettings, PlatformSettings, AdCampaign, SupportTicket, TicketReply, LiveQuiz, LiveQuizParticipant, User, Question, Quiz, BookStoreItem, BookOrder } from "../types";
+import { fetchAllSupportTickets, saveSupportTicketInFirestore, fetchLiveQuizzes, saveLiveQuizInFirestore, deleteLiveQuizInFirestore, fetchAllUsers, backupAllCollections, clearAllDatabaseData } from "../lib/dbService";
 import { db } from "../firebase";
 import { collection, doc, setDoc, updateDoc, onSnapshot, getDoc } from "firebase/firestore";
 
@@ -104,6 +108,11 @@ interface AdminDashboardProps {
   onDeleteCourse?: (courseId: string) => Promise<{ success: boolean; message?: string }> | { success: boolean; message?: string };
   platformSettings?: PlatformSettings;
   onUpdatePlatformSettings?: (settings: PlatformSettings) => void;
+  books?: BookStoreItem[];
+  bookOrders?: BookOrder[];
+  onUpdateBookOrder?: (orderId: string, status: "pending" | "shipped" | "delivered" | "cancelled", shippingCompany?: string, trackingNumber?: string) => void;
+  onAddBookStoreItem?: (newBook: BookStoreItem) => void;
+  onDeleteBookStoreItem?: (bookId: string) => void;
 }
 
 export default function AdminDashboard({
@@ -133,11 +142,21 @@ export default function AdminDashboard({
   onDeleteCourse,
   platformSettings,
   onUpdatePlatformSettings,
+  books = [],
+  bookOrders = [],
+  onUpdateBookOrder,
+  onAddBookStoreItem,
+  onDeleteBookStoreItem,
 }: AdminDashboardProps) {
   // Navigation tabs - Default to teachers for Teacher since financials/payments/settings are Admin-only
-  const [activeTab, setActiveTab] = React.useState<"payments" | "teachers" | "students" | "codes" | "video" | "settings" | "tickets" | "course-students" | "cloudflare">(
-    user?.role === "teacher" ? "teachers" : "payments"
+  const [activeTab, setActiveTab] = React.useState<"payments" | "teachers" | "students" | "codes" | "video" | "settings" | "tickets" | "course-students" | "books">(
+    user?.role === "teacher" ? "teachers" : "students"
   );
+  const [studentsSubTab, setStudentsSubTab] = React.useState<"list" | "payments" | "codes">("list");
+
+  // Database maintenance states
+  const [isBackingUp, setIsBackingUp] = React.useState<boolean>(false);
+  const [isClearing, setIsClearing] = React.useState<boolean>(false);
 
   // Course Subscriptions (Enrollment Management) States
   const [selectedCourseIdForStudents, setSelectedCourseIdForStudents] = React.useState<string>("");
@@ -146,6 +165,23 @@ export default function AdminDashboard({
   const [enrollPhoneInput, setEnrollPhoneInput] = React.useState<string>("");
   const [enrollSuccessMsg, setEnrollSuccessMsg] = React.useState<string>("");
   const [enrollErrorMsg, setEnrollErrorMsg] = React.useState<string>("");
+
+  // Booklet Store States
+  const [bookTitle, setBookTitle] = React.useState<string>("");
+  const [bookDescription, setBookDescription] = React.useState<string>("");
+  const [bookPrice, setBookPrice] = React.useState<number>(0);
+  const [bookImageUrl, setBookImageUrl] = React.useState<string>("");
+  const [bookStock, setBookStock] = React.useState<number>(100);
+  const [bookSuccessMsg, setBookSuccessMsg] = React.useState<string>("");
+  const [bookErrorMsg, setBookErrorMsg] = React.useState<string>("");
+
+  const [selectedOrderForStatusUpdate, setSelectedOrderForStatusUpdate] = React.useState<string | null>(null);
+  const [newOrderStatus, setNewOrderStatus] = React.useState<"pending" | "shipped" | "delivered" | "cancelled">("pending");
+  const [newShippingCompany, setNewShippingCompany] = React.useState<string>("");
+  const [newTrackingNumber, setNewTrackingNumber] = React.useState<string>("");
+  const [orderSuccessMsg, setOrderSuccessMsg] = React.useState<string>("");
+  const [orderErrorMsg, setOrderErrorMsg] = React.useState<string>("");
+  const [orderFilter, setOrderFilter] = React.useState<"all" | "pending" | "shipped" | "delivered" | "cancelled">("all");
 
   const loadAllUsersFromDb = async () => {
     setLoadingUsers(true);
@@ -584,123 +620,6 @@ export default function AdminDashboard({
   const [tempSupportInfo, setTempSupportInfo] = React.useState(platformSettings?.supportInfo || "");
   const [settingsSuccessMsg, setSettingsSuccessMsg] = React.useState("");
 
-  // Cloudflare Integration states
-  const [cfEnabled, setCfEnabled] = React.useState<boolean>(platformSettings?.cloudflareEnabled ?? true);
-  const [cfEmail, setCfEmail] = React.useState<string>(platformSettings?.cloudflareEmail ?? "admin@yusr-academy.com");
-  const [cfApiKey, setCfApiKey] = React.useState<string>(platformSettings?.cloudflareApiKey ?? "");
-  const [cfZoneId, setCfZoneId] = React.useState<string>(platformSettings?.cloudflareZoneId ?? "");
-  const [cfTurnstileSiteKey, setCfTurnstileSiteKey] = React.useState<string>(platformSettings?.cloudflareTurnstileSiteKey ?? "");
-  const [cfTurnstileSecretKey, setCfTurnstileSecretKey] = React.useState<string>(platformSettings?.cloudflareTurnstileSecretKey ?? "");
-  const [cfStreamEnabled, setCfStreamEnabled] = React.useState<boolean>(platformSettings?.cloudflareStreamEnabled ?? true);
-  const [cfStreamToken, setCfStreamToken] = React.useState<string>(platformSettings?.cloudflareStreamToken ?? "");
-  const [cfStreamAccountID, setCfStreamAccountID] = React.useState<string>(platformSettings?.cloudflareStreamAccountID ?? "");
-
-  const [cfPurgeStatus, setCfPurgeStatus] = React.useState<"idle" | "purging" | "success" | "error">("idle");
-  const [cfTestStatus, setCfTestStatus] = React.useState<"idle" | "testing" | "success" | "error">("idle");
-  const [cfTestResult, setCfTestResult] = React.useState<string>("");
-  const [cfUrlToPurge, setCfUrlToPurge] = React.useState<string>("");
-  const [cfSuccessMsg, setCfSuccessMsg] = React.useState<string>("");
-
-  // Cloudflare Domain Linking Wizard states
-  const [userDomain, setUserDomain] = React.useState<string>("yasser.cc");
-  const [dnsCheckStatus, setDnsCheckStatus] = React.useState<"idle" | "checking" | "success" | "error">("idle");
-  const [dnsCheckResult, setDnsCheckResult] = React.useState<string>("");
-  const [dnsWizardStep, setDnsWizardStep] = React.useState<number>(1);
-  const [cfLinkMethod, setCfLinkMethod] = React.useState<"dns" | "worker" | "github">("github");
-
-  const handleSimulateDnsCheck = () => {
-    if (!userDomain.trim()) {
-      setDnsCheckStatus("error");
-      setDnsCheckResult("⚠️ يرجى إدخال اسم نطاق (Domain) صحيح أولاً!");
-      return;
-    }
-    setDnsCheckStatus("checking");
-    setDnsCheckResult("");
-    setTimeout(() => {
-      // Simulate checking domain nameservers
-      const cleanDomain = userDomain.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, "");
-      if (cleanDomain.includes(".") && cleanDomain.length > 4) {
-        setDnsCheckStatus("success");
-        setDnsCheckResult(`✅ تم فحص النطاق [ ${cleanDomain} ] وهو مرتبط ومحمي بنجاح!
-- خوادم الأسماء الحالية (Nameservers):
-  1. dana.ns.cloudflare.com (🟢 Active)
-  2. olga.ns.cloudflare.com (🟢 Active)
-- حالة الـ CDN والوكيل (Proxy Status): مفعّل ونشط (Proxied ☁️)
-- شهادة الأمان (SSL/TLS): مفعلة بنظام التشفير الكامل (Full SSL Certified 🔒)
-- حالة الـ TTL: تلقائي (Auto)
-- الحماية ضد البوتات: تعمل بنجاح عبر Turnstile!`);
-      } else {
-        setDnsCheckStatus("error");
-        setDnsCheckResult(`❌ لم نتمكن من العثور على سجلات Cloudflare للنطاق [ ${cleanDomain} ].
-يرجى التأكد من تغيير الـ Nameservers لدى مستضيف النطاق الخاص بك إلى:
-1. dana.ns.cloudflare.com
-2. olga.ns.cloudflare.com`);
-      }
-    }, 1800);
-  };
-
-  const handlePingCloudflareAPI = () => {
-    setCfTestStatus("testing");
-    setCfTestResult("");
-    setTimeout(() => {
-      if (!cfApiKey || !cfEmail) {
-        setCfTestStatus("error");
-        setCfTestResult("فشل الاتصال: يرجى إدخال البريد الإلكتروني ومفتاح واجهة برمجة التطبيقات (API Key) الخاص بك أولاً.");
-        return;
-      }
-      setCfTestStatus("success");
-      setCfTestResult(`✅ تم الاتصال بنجاح بـ Cloudflare CDN!
-- حالة الاتصال: متصل ومؤمن ومسرّع (🟢 Active / Edge Connected)
-- الحساب المسجل: ${cfEmail}
-- كاش الخادم: متزامن ونشط بالكامل (Cache Shield ON)
-- بروتوكول تسريع الشبكة: Brotli + TLS 1.3 Enabled (Compression 1.35x)
-- جدار الحماية (WAF): جاري صد محاولات الاختراق وحظر البوتات تلقائياً (Turnstile Secure)
-- موقع خادم التوزيع الرئيسي: خادم القاهرة (CAI Edge) - وقت استجابة فائقة السرعة 12ms ⚡`);
-    }, 1500);
-  };
-
-  const handlePurgeCloudflareCache = (all = true) => {
-    setCfPurgeStatus("purging");
-    setTimeout(() => {
-      setCfPurgeStatus("success");
-      setCfSuccessMsg(all 
-        ? "🧹 تم إرسال أمر تفريغ الكاش بالكامل بنجاح! تم تنظيف خوادم الـ Edge وتحديث المحتوى لكافة الطلاب." 
-        : `🧹 تم تفريغ كاش الرابط [ ${cfUrlToPurge} ] بنجاح من خوادم الـ Edge التوزيعية!`
-      );
-      setCfUrlToPurge("");
-      setTimeout(() => setCfSuccessMsg(""), 4000);
-    }, 1200);
-  };
-
-  const handleSaveCloudflareSettings = () => {
-    if (onUpdatePlatformSettings) {
-      onUpdatePlatformSettings({
-        platformName: tempPlatformName,
-        logoUrl: tempLogoUrl,
-        contactPhone: tempContactPhone,
-        contactWhatsapp: tempContactWhatsapp,
-        contactEmail: tempContactEmail,
-        contactTelegram: tempContactTelegram,
-        contactFacebook: tempContactFacebook,
-        ads: tempAds,
-        privacyPolicy: tempPrivacyPolicy,
-        termsOfUse: tempTermsOfUse,
-        supportInfo: tempSupportInfo,
-        cloudflareEnabled: cfEnabled,
-        cloudflareEmail: cfEmail,
-        cloudflareApiKey: cfApiKey,
-        cloudflareZoneId: cfZoneId,
-        cloudflareTurnstileSiteKey: cfTurnstileSiteKey,
-        cloudflareTurnstileSecretKey: cfTurnstileSecretKey,
-        cloudflareStreamEnabled: cfStreamEnabled,
-        cloudflareStreamToken: cfStreamToken,
-        cloudflareStreamAccountID: cfStreamAccountID,
-      });
-      setCfSuccessMsg("تم حفظ وتطبيق إعدادات Cloudflare بنجاح في قاعدة البيانات وجاري تشغيل الأنظمة! ☁️🎉");
-      setTimeout(() => setCfSuccessMsg(""), 4000);
-    }
-  };
-
   // Ad Form states
   const [selectedAdIdForEdit, setSelectedAdIdForEdit] = React.useState<string | null>(null);
   const [adFormTitle, setAdFormTitle] = React.useState("");
@@ -806,6 +725,48 @@ export default function AdminDashboard({
     }
   };
 
+  const handleBackupDatabase = async () => {
+    setIsBackingUp(true);
+    try {
+      const data = await backupAllCollections();
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", dataStr);
+      const timestamp = new Date().toISOString().slice(0, 10);
+      downloadAnchor.setAttribute("download", `yusr_academy_backup_${timestamp}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      
+      alert("📦 تم توليد وتحميل النسخة الاحتياطية لقاعدة البيانات بنجاح كملف JSON!");
+    } catch (err) {
+      console.error("Backup failed:", err);
+      alert("❌ عذراً، فشل إجراء النسخ الاحتياطي لقاعدة البيانات.");
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
+  const handleClearAllData = async () => {
+    const confirmFirst = window.confirm("⚠️ تحذير شديد: هل أنت متأكد تماماً من رغبتك في مسح كافة البيانات من قاعدة البيانات؟ لا يمكن التراجع عن هذا الإجراء!");
+    if (!confirmFirst) return;
+    
+    const confirmSecond = window.confirm("🚨 تأكيد أخير: سيتم مسح كافة الكورسات، الطلاب، المعلمين، الفواتير، التذاكر، وسجلات الأنشطة. هل تريد الاستمرار بالفعل؟");
+    if (!confirmSecond) return;
+    
+    setIsClearing(true);
+    try {
+      await clearAllDatabaseData();
+      alert("🗑️ تم مسح جميع البيانات من قاعدة البيانات بنجاح! سيقوم النظام الآن بإعادة تهيئة البيانات الافتراضية عند تحديث الصفحة.");
+      window.location.reload();
+    } catch (err) {
+      console.error("Failed to clear database:", err);
+      alert("❌ فشل إجراء مسح البيانات من السيرفر.");
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   // Sync state if props update
   React.useEffect(() => {
     if (platformSettings) {
@@ -820,15 +781,6 @@ export default function AdminDashboard({
       setTempPrivacyPolicy(platformSettings.privacyPolicy || "");
       setTempTermsOfUse(platformSettings.termsOfUse || "");
       setTempSupportInfo(platformSettings.supportInfo || "");
-      setCfEnabled(platformSettings.cloudflareEnabled ?? true);
-      setCfEmail(platformSettings.cloudflareEmail ?? "admin@yusr-academy.com");
-      setCfApiKey(platformSettings.cloudflareApiKey ?? "");
-      setCfZoneId(platformSettings.cloudflareZoneId ?? "");
-      setCfTurnstileSiteKey(platformSettings.cloudflareTurnstileSiteKey ?? "");
-      setCfTurnstileSecretKey(platformSettings.cloudflareTurnstileSecretKey ?? "");
-      setCfStreamEnabled(platformSettings.cloudflareStreamEnabled ?? true);
-      setCfStreamToken(platformSettings.cloudflareStreamToken ?? "");
-      setCfStreamAccountID(platformSettings.cloudflareStreamAccountID ?? "");
     }
   }, [platformSettings]);
 
@@ -1155,18 +1107,6 @@ export default function AdminDashboard({
 
       {/* Admin Central Sub-navigation Tabs */}
       <div className="flex border-b border-gray-200 overflow-x-auto whitespace-nowrap scrollbar-none gap-1.5 pb-1" id="admin-tabs">
-        {user?.role !== "teacher" && (
-          <button
-            onClick={() => setActiveTab("payments")}
-            className={`px-3.5 py-2 rounded-lg text-[10px] sm:text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
-              activeTab === "payments" ? "bg-red-600 text-white shadow-md shadow-red-200" : "bg-white border border-gray-100 text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <DollarSign className="w-3.5 h-3.5" />
-            <span>التحويلات ({pendingCount})</span>
-          </button>
-        )}
-
         <button
           onClick={() => setActiveTab("teachers")}
           className={`px-3.5 py-2 rounded-lg text-[10px] sm:text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
@@ -1185,19 +1125,12 @@ export default function AdminDashboard({
             }`}
           >
             <Users className="w-3.5 h-3.5" />
-            <span>الطلاب والمحافظ</span>
-          </button>
-        )}
-
-        {user?.role !== "teacher" && (
-          <button
-            onClick={() => setActiveTab("codes")}
-            className={`px-3.5 py-2 rounded-lg text-[10px] sm:text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
-              activeTab === "codes" ? "bg-red-600 text-white shadow-md shadow-red-200" : "bg-white border border-gray-100 text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <Ticket className="w-3.5 h-3.5" />
-            <span>أكواد الشحن</span>
+            <span>الطلاب</span>
+            {pendingCount > 0 && (
+              <span className="text-[9px] bg-yellow-400 text-slate-900 px-1.5 py-0.5 rounded-full font-black animate-pulse mr-1">
+                {pendingCount} معلق 🔔
+              </span>
+            )}
           </button>
         )}
 
@@ -1238,6 +1171,19 @@ export default function AdminDashboard({
 
         {user?.role !== "teacher" && (
           <button
+            onClick={() => setActiveTab("books")}
+            className={`px-3.5 py-2 rounded-lg text-[10px] sm:text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
+              activeTab === "books" ? "bg-red-600 text-white shadow-md shadow-red-200" : "bg-white border border-gray-100 text-gray-600 hover:bg-gray-50"
+            }`}
+            id="books-tab-btn"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>متجر المذكرات والشحن 🚚</span>
+          </button>
+        )}
+
+        {user?.role !== "teacher" && (
+          <button
             onClick={() => setActiveTab("settings")}
             className={`px-3.5 py-2 rounded-lg text-[10px] sm:text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
               activeTab === "settings" ? "bg-red-600 text-white shadow-md shadow-red-200" : "bg-white border border-gray-100 text-gray-600 hover:bg-gray-50"
@@ -1246,19 +1192,6 @@ export default function AdminDashboard({
           >
             <Settings className="w-3.5 h-3.5" />
             <span>الإعدادات والإعلانات</span>
-          </button>
-        )}
-
-        {user?.role !== "teacher" && (
-          <button
-            onClick={() => setActiveTab("cloudflare")}
-            className={`px-3.5 py-2 rounded-lg text-[10px] sm:text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ${
-              activeTab === "cloudflare" ? "bg-red-600 text-white shadow-md shadow-red-200" : "bg-white border border-gray-100 text-gray-600 hover:bg-gray-50"
-            }`}
-            id="cloudflare-tab-btn"
-          >
-            <Cloud className="w-3.5 h-3.5" />
-            <span>ربط كلوود فلير Cloudflare ☁️</span>
           </button>
         )}
       </div>
@@ -1278,119 +1211,7 @@ export default function AdminDashboard({
       {/* Dynamic Content Panel rendering current activeTab */}
       <div className="bg-white border border-gray-100 rounded-3xl p-6 sm:p-8 shadow-xs" id="admin-panel-viewport">
         <AnimatePresence mode="wait">
-          {activeTab === "payments" && (
-            <motion.div
-              key="payments-pane"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="space-y-6"
-            >
-              {user?.role === "teacher" ? (
-                renderRestrictedScreen(
-                  "طلبات التحويل والماليات مغلقة",
-                  "عذراً، لا تمتلك صلاحيات كافية لمراجعة أو قبول طلبات التحويل المالي أو تفعيل الكورسات المدفوعة. تواصل مع المشرف العام للقيام بذلك."
-                )
-              ) : (
-                <>
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-100 pb-3 gap-3">
-                    <div>
-                      <h3 className="text-base font-black text-gray-900">
-                        طلبات الدفع والاشتراك والتحويل المعلقة ({pendingCount})
-                      </h3>
-                      <p className="text-xs text-gray-400">راجع واعتمد الطلبات فورياً لتفعيل الكورسات للطلاب</p>
-                    </div>
-                    <button
-                      onClick={handleExportPaymentsToCSV}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-3 py-1.5 rounded-xl text-xs transition-colors cursor-pointer flex items-center gap-1 shrink-0"
-                      title="تصدير تقارير الاشتراكات والدفع إلى ملف CSV"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>تصدير الاشتراكات (CSV) 📥</span>
-                    </button>
-                  </div>
 
-                  <div className="grid grid-cols-1 gap-4">
-                    {pendingPayments.filter((p) => p.status === "pending").length > 0 ? (
-                      pendingPayments
-                        .filter((p) => p.status === "pending")
-                        .map((payment) => (
-                          <div
-                            key={payment.id}
-                            className="p-5 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all hover:bg-white hover:border-red-150"
-                          >
-                            <div className="space-y-2 text-right">
-                              <div className="flex items-center gap-2">
-                                <span className="font-extrabold text-sm text-slate-900">
-                                  {payment.userName}
-                                </span>
-                                <span className="text-[10px] bg-red-50 text-red-600 font-bold px-2 py-0.5 rounded-md">
-                                  {payment.userPhone}
-                                </span>
-                              </div>
-                              <p className="text-xs text-slate-600">
-                                يريد تفعيل كورس: <span className="font-extrabold text-red-600">{payment.courseTitle}</span>
-                              </p>
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-1 text-[10px] text-gray-500 pt-1 border-t border-slate-100/60">
-                                <p>طريقة التحويل: <span className="font-bold text-slate-700">{payment.method === "vodafone_cash" ? "فودافون كاش" : payment.method === "instapay" ? "إنستاباي" : payment.method === "fawry" ? "فوري" : "فيزا"}</span></p>
-                                <p>رقم المحول/المرجع: <span className="font-mono font-bold text-slate-700">{payment.senderPhoneOrRef}</span></p>
-                                <p>قيمة الاشتراك المطلوب: <span className="font-bold text-red-600 font-mono">{payment.amount} ج.م</span></p>
-                              </div>
-                            </div>
-
-                            {/* Action buttons */}
-                            <div className="flex gap-2 w-full sm:w-auto">
-                              <button
-                                onClick={() => onApprovePayment(payment.id)}
-                                className="flex-1 sm:flex-none flex items-center justify-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-4 py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
-                              >
-                                <CheckCircle className="w-3.5 h-3.5" />
-                                <span>تفعيل الكورس فوراً</span>
-                              </button>
-                              <button
-                                onClick={() => onRejectPayment(payment.id)}
-                                className="flex-1 sm:flex-none flex items-center justify-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 font-extrabold px-4 py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
-                              >
-                                <XCircle className="w-3.5 h-3.5" />
-                                <span>رفض</span>
-                              </button>
-                            </div>
-                          </div>
-                        ))
-                    ) : (
-                      <div className="py-16 text-center text-sm text-gray-400 font-medium">
-                        لا توجد أي طلبات تحويل أو اشتراك معلقة حالياً في المنصة. جميع طلبات الطلاب مُجابة! 👍
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Verified payments history */}
-                  <div className="pt-6 space-y-3">
-                    <h4 className="text-xs font-extrabold text-gray-400">آخر العمليات التي تم معالجتها بالمنصة:</h4>
-                    <div className="max-h-60 overflow-y-auto divide-y divide-gray-50">
-                      {pendingPayments.filter(p => p.status !== "pending").map((p, pIdx) => (
-                        <div key={p.id} className="py-3 flex justify-between items-center text-xs">
-                          <div>
-                            <span className="font-bold text-slate-800">{p.userName}</span>
-                            <span className="text-[10px] text-gray-400 mr-2">{p.userPhone}</span>
-                            <p className="text-[10px] text-gray-500 mt-0.5">كورس: {p.courseTitle}</p>
-                          </div>
-                          <div className="text-left">
-                            <span className="font-mono font-bold text-slate-700 block">{p.amount} ج.م</span>
-                            {p.status === "approved" ? (
-                              <span className="text-[9px] bg-emerald-50 text-emerald-600 font-extrabold px-1.5 py-0.5 rounded">مقبول ومفعل</span>
-                            ) : (
-                              <span className="text-[9px] bg-red-50 text-red-600 font-extrabold px-1.5 py-0.5 rounded">مرفوض</span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-            </motion.div>
-          )}
 
           {activeTab === "teachers" && (
             <motion.div
@@ -2235,7 +2056,53 @@ export default function AdminDashboard({
               exit={{ opacity: 0, y: -10 }}
               className="space-y-6"
             >
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {user?.role !== "teacher" && (
+                <div className="flex border-b border-gray-100 pb-2.5 gap-2 overflow-x-auto whitespace-nowrap scrollbar-none mb-4" id="students-subtabs">
+                  <button
+                    onClick={() => setStudentsSubTab("list")}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                      studentsSubTab === "list"
+                        ? "bg-red-600 text-white shadow-md shadow-red-200"
+                        : "bg-slate-50 border border-slate-100 text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>إدارة الطلاب والمحافظ ({students.length})</span>
+                  </button>
+
+                  <button
+                    onClick={() => setStudentsSubTab("payments")}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                      studentsSubTab === "payments"
+                        ? "bg-red-600 text-white shadow-md shadow-red-200"
+                        : "bg-slate-50 border border-slate-100 text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    <DollarSign className="w-3.5 h-3.5" />
+                    <span>التحويلات المالية والدفع المعلق</span>
+                    {pendingCount > 0 && (
+                      <span className="bg-yellow-400 text-slate-900 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full animate-pulse mr-1">
+                        {pendingCount} معلق
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => setStudentsSubTab("codes")}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                      studentsSubTab === "codes"
+                        ? "bg-red-600 text-white shadow-md shadow-red-200"
+                        : "bg-slate-50 border border-slate-100 text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    <Ticket className="w-3.5 h-3.5" />
+                    <span>أكواد الشحن</span>
+                  </button>
+                </div>
+              )}
+
+              {studentsSubTab === "list" ? (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                 {/* Students List with Balance Control */}
                 <div className="lg:col-span-8 space-y-4">
                   <div className="border-b border-gray-100 pb-3 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
@@ -2509,132 +2376,213 @@ export default function AdminDashboard({
                   </div>
                 </div>
               </div>
-            </motion.div>
-          )}
-
-          {activeTab === "codes" && (
-            <motion.div
-              key="codes-pane"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="space-y-6"
-            >
-              {user?.role === "teacher" ? (
-                renderRestrictedScreen(
-                  "إدارة أكواد الشحن مغلقة للمدرس",
-                  "عذراً، توليد الأكواد وإدارتها وتصفير رصيد المحافظ أو طباعتها متاح فقط للمدير العام لمنع أي تلاعب مالي أو إساءة استخدام."
-                )
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                {/* Generate form */}
-                <div className="lg:col-span-4">
-                  <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl space-y-4">
-                    <h3 className="text-xs font-black text-gray-900 flex items-center gap-1">
-                      <Ticket className="w-4 h-4 text-red-600" />
-                      <span>توليد وإنشاء أكواد شحن جديدة</span>
-                    </h3>
-
-                    <p className="text-[10px] text-gray-500 leading-relaxed">
-                      الأكواد المنتجة تعمل كبطاقات شحن. يمكن تسليمها للطلاب مطبوعة أو إرسالها بالهاتف ليقوموا بكتابتها بمحفظتهم للحصول على رصيد تفعيل الكورسات فورياً.
-                    </p>
-
-                    {codeSuccess && (
-                      <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-600 text-xs font-bold rounded-xl">
-                        {codeSuccess}
-                      </div>
-                    )}
-
-                    <form onSubmit={handleGenerateCodesSubmit} className="space-y-3">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-600 block">قيمة الرصيد للكود الواحد (ج.م)</label>
-                        <select
-                          value={codeValue}
-                          onChange={(e) => setCodeValue(Number(e.target.value))}
-                          className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs"
-                        >
-                          <option value="50">50 ج.م</option>
-                          <option value="100">100 ج.م</option>
-                          <option value="120">120 ج.م</option>
-                          <option value="130">130 ج.م</option>
-                          <option value="140">140 ج.م</option>
-                          <option value="150">150 ج.م</option>
-                          <option value="200">200 ج.م</option>
-                          <option value="300">300 ج.م</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-600 block">عدد الأكواد المراد توليدها معاً</label>
-                        <input
-                          type="number"
-                          required
-                          min={1}
-                          max={50}
-                          value={codeCount}
-                          onChange={(e) => setCodeCount(Number(e.target.value))}
-                          className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-mono"
-                        />
-                      </div>
-
-                      <button
-                        type="submit"
-                        className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-2.5 rounded-xl text-xs transition-colors"
-                      >
-                        توليد أكواد عشوائية آمنة 🎲
-                      </button>
-                    </form>
-                  </div>
-                </div>
-
-                {/* Codes List Column */}
-                <div className="lg:col-span-8 space-y-4">
-                  <div className="border-b border-gray-100 pb-2">
-                    <h3 className="text-base font-black text-gray-900">سجل الأكواد المنتجة بالمنصة ({chargeCodes.length})</h3>
-                    <p className="text-xs text-gray-400">انسخ الكود لتقديمه للطالب، وراقب حالة شحن واستخدام البطاقات</p>
+            ) : studentsSubTab === "payments" ? (
+                <>
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-100 pb-3 gap-3">
+                    <div>
+                      <h3 className="text-base font-black text-gray-900">
+                        طلبات الدفع والاشتراك والتحويل المعلقة ({pendingCount})
+                      </h3>
+                      <p className="text-xs text-gray-400">راجع واعتمد الطلبات فورياً لتفعيل الكورسات للطلاب</p>
+                    </div>
+                    <button
+                      onClick={handleExportPaymentsToCSV}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-3 py-1.5 rounded-xl text-xs transition-colors cursor-pointer flex items-center gap-1 shrink-0"
+                      title="تصدير تقارير الاشتراكات والدفع إلى ملف CSV"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>تصدير الاشتراكات (CSV) 📥</span>
+                    </button>
                   </div>
 
-                  <div className="max-h-[380px] overflow-y-auto border border-gray-100 rounded-2xl divide-y divide-gray-50">
-                    {chargeCodes.length > 0 ? (
-                      chargeCodes.map((c, idx) => (
-                        <div key={c.code || idx} className="p-3 bg-gray-50/40 hover:bg-white flex justify-between items-center text-xs">
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleCopyCode(c.code)}
-                              className="p-1.5 bg-white border border-gray-150 rounded text-gray-500 hover:bg-gray-100"
-                              title="نسخ الكود"
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                            </button>
-                            <div>
-                              <span className="font-mono font-bold text-slate-900">{c.code}</span>
-                              <span className="text-[9px] text-gray-400 mr-2">شحن رصيد</span>
+                  <div className="grid grid-cols-1 gap-4">
+                    {pendingPayments.filter((p) => p.status === "pending").length > 0 ? (
+                      pendingPayments
+                        .filter((p) => p.status === "pending")
+                        .map((payment) => (
+                          <div
+                            key={payment.id}
+                            className="p-5 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all hover:bg-white hover:border-red-150"
+                          >
+                            <div className="space-y-2 text-right">
+                              <div className="flex items-center gap-2">
+                                <span className="font-extrabold text-sm text-slate-900">
+                                  {payment.userName}
+                                </span>
+                                <span className="text-[10px] bg-red-50 text-red-600 font-bold px-2 py-0.5 rounded-md">
+                                  {payment.userPhone}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-600">
+                                يريد تفعيل كورس: <span className="font-extrabold text-red-600">{payment.courseTitle}</span>
+                              </p>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-1 text-[10px] text-gray-500 pt-1 border-t border-slate-100/60">
+                                <p>طريقة التحويل: <span className="font-bold text-slate-700">{payment.method === "vodafone_cash" ? "فودافون كاش" : payment.method === "instapay" ? "إنستاباي" : payment.method === "fawry" ? "فوري" : "فيزا"}</span></p>
+                                <p>رقم المحول/المرجع: <span className="font-mono font-bold text-slate-700">{payment.senderPhoneOrRef}</span></p>
+                                <p>قيمة الاشتراك المطلوب: <span className="font-bold text-red-600 font-mono">{payment.amount} ج.م</span></p>
+                              </div>
+                            </div>
+
+                            {/* Action buttons */}
+                            <div className="flex gap-2 w-full sm:w-auto">
+                              <button
+                                onClick={() => onApprovePayment(payment.id)}
+                                className="flex-1 sm:flex-none flex items-center justify-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-4 py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                              >
+                                <CheckCircle className="w-3.5 h-3.5" />
+                                <span>تفعيل الكورس فوراً</span>
+                              </button>
+                              <button
+                                onClick={() => onRejectPayment(payment.id)}
+                                className="flex-1 sm:flex-none flex items-center justify-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 font-extrabold px-4 py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                                <span>رفض</span>
+                              </button>
                             </div>
                           </div>
+                        ))
+                    ) : (
+                      <div className="py-16 text-center text-sm text-gray-400 font-medium">
+                        لا توجد أي طلبات تحويل أو اشتراك معلقة حالياً في المنصة. جميع طلبات الطلاب مُجابة! 👍
+                      </div>
+                    )}
+                  </div>
 
-                          <div className="flex items-center gap-3">
-                            <span className="font-mono font-bold text-emerald-600 text-xs">{c.value} ج.م</span>
-                            
-                            {c.isUsed ? (
-                              <div className="text-left text-[10px] text-red-600 bg-red-50/50 px-2 py-0.5 rounded font-medium border border-red-100/50">
-                                <span>استخدمه: {c.usedByName || c.usedBy}</span>
-                              </div>
+                  {/* Verified payments history */}
+                  <div className="pt-6 space-y-3">
+                    <h4 className="text-xs font-extrabold text-gray-400">آخر العمليات التي تم معالجتها بالمنصة:</h4>
+                    <div className="max-h-60 overflow-y-auto divide-y divide-gray-50">
+                      {pendingPayments.filter(p => p.status !== "pending").map((p, pIdx) => (
+                        <div key={p.id} className="py-3 flex justify-between items-center text-xs">
+                          <div>
+                            <span className="font-bold text-slate-800">{p.userName}</span>
+                            <span className="text-[10px] text-gray-400 mr-2">{p.userPhone}</span>
+                            <p className="text-[10px] text-gray-500 mt-0.5">كورس: {p.courseTitle}</p>
+                          </div>
+                          <div className="text-left">
+                            <span className="font-mono font-bold text-slate-700 block">{p.amount} ج.م</span>
+                            {p.status === "approved" ? (
+                              <span className="text-[9px] bg-emerald-50 text-emerald-600 font-extrabold px-1.5 py-0.5 rounded">مقبول ومفعل</span>
                             ) : (
-                              <span className="text-[9px] bg-emerald-50 text-emerald-700 font-extrabold px-2 py-0.5 rounded border border-emerald-150">
-                                فعال وجاهز 👍
-                              </span>
+                              <span className="text-[9px] bg-red-50 text-red-600 font-extrabold px-1.5 py-0.5 rounded">مرفوض</span>
                             )}
                           </div>
                         </div>
-                      ))
-                    ) : (
-                      <div className="py-12 text-center text-gray-400 text-xs">
-                        لم يتم توليد أي أكواد شحن حتى الآن. استخدم المولد في اليمين!
-                      </div>
-                    )}
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                  {/* Generate form */}
+                  <div className="lg:col-span-4">
+                    <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl space-y-4">
+                      <h3 className="text-xs font-black text-gray-900 flex items-center gap-1">
+                        <Ticket className="w-4 h-4 text-red-600" />
+                        <span>توليد وإنشاء أكواد شحن جديدة</span>
+                      </h3>
+
+                      <p className="text-[10px] text-gray-500 leading-relaxed">
+                        الأكواد المنتجة تعمل كبطاقات شحن. يمكن تسليمها للطلاب مطبوعة أو إرسالها بالهاتف ليقوموا بكتابتها بمحفظتهم للحصول على رصيد تفعيل الكورسات فورياً.
+                      </p>
+
+                      {codeSuccess && (
+                        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-600 text-xs font-bold rounded-xl">
+                          {codeSuccess}
+                        </div>
+                      )}
+
+                      <form onSubmit={handleGenerateCodesSubmit} className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-gray-600 block">قيمة الرصيد للكود الواحد (ج.م)</label>
+                          <select
+                            value={codeValue}
+                            onChange={(e) => setCodeValue(Number(e.target.value))}
+                            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs"
+                          >
+                            <option value="50">50 ج.م</option>
+                            <option value="100">100 ج.م</option>
+                            <option value="120">120 ج.م</option>
+                            <option value="130">130 ج.م</option>
+                            <option value="140">140 ج.م</option>
+                            <option value="150">150 ج.م</option>
+                            <option value="200">200 ج.م</option>
+                            <option value="300">300 ج.م</option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-gray-600 block">عدد الأكواد المراد توليدها معاً</label>
+                          <input
+                            type="number"
+                            required
+                            min={1}
+                            max={50}
+                            value={codeCount}
+                            onChange={(e) => setCodeCount(Number(e.target.value))}
+                            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-mono"
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-2.5 rounded-xl text-xs transition-colors"
+                        >
+                          توليد أكواد عشوائية آمنة 🎲
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+
+                  {/* Codes List Column */}
+                  <div className="lg:col-span-8 space-y-4">
+                    <div className="border-b border-gray-100 pb-2">
+                      <h3 className="text-base font-black text-gray-900">سجل الأكواد المنتجة بالمنصة ({chargeCodes.length})</h3>
+                      <p className="text-xs text-gray-400">انسخ الكود لتقديمه للطالب، وراقب حالة شحن واستخدام البطاقات</p>
+                    </div>
+
+                    <div className="max-h-[380px] overflow-y-auto border border-gray-100 rounded-2xl divide-y divide-gray-50">
+                      {chargeCodes.length > 0 ? (
+                        chargeCodes.map((c, idx) => (
+                          <div key={c.code || idx} className="p-3 bg-gray-50/40 hover:bg-white flex justify-between items-center text-xs">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleCopyCode(c.code)}
+                                className="p-1.5 bg-white border border-gray-150 rounded text-gray-500 hover:bg-gray-100"
+                                title="نسخ الكود"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                              <div>
+                                <span className="font-mono font-bold text-slate-900">{c.code}</span>
+                                <span className="text-[9px] text-gray-400 mr-2">شحن رصيد</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <span className="font-mono font-bold text-emerald-600 text-xs">{c.value} ج.م</span>
+                              
+                              {c.isUsed ? (
+                                <div className="text-left text-[10px] text-red-600 bg-red-50/50 px-2 py-0.5 rounded font-medium border border-red-100/50">
+                                  <span>استخدمه: {c.usedByName || c.usedBy}</span>
+                                </div>
+                              ) : (
+                                <span className="text-[9px] bg-emerald-50 text-emerald-700 font-extrabold px-2 py-0.5 rounded border border-emerald-150">
+                                  فعال وجاهز 👍
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="py-12 text-center text-gray-400 text-xs">
+                          لم يتم توليد أي أكواد شحن حتى الآن. استخدم المولد في اليمين!
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
               )}
             </motion.div>
           )}
@@ -3238,955 +3186,39 @@ export default function AdminDashboard({
                   </div>
                 </div>
               </div>
-            </motion.div>
-          )}
 
-          {activeTab === "cloudflare" && (
-            <motion.div
-              key="cloudflare-pane"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="space-y-8 text-right font-sans"
-            >
-              {/* Header Title */}
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-100 pb-5">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-orange-500 animate-pulse"></span>
-                    <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                      إدارة وتسريع منصة Cloudflare العالمية ☁️⚡
-                    </h3>
-                  </div>
-                  <p className="text-xs text-gray-400 font-bold leading-relaxed">
-                    قم بربط المنصة بخوادم كلوود فلير لزيادة سرعة التصفح 10x، تفعيل كاش Edge الذكي لحماية قاعدة البيانات وتوفير الكويريز، وتأمين المنصة ضد البوتات الضارة.
-                  </p>
+              {/* Data Maintenance & Backup Panel */}
+              <div className="bg-white border border-gray-150 rounded-3xl p-6 shadow-sm space-y-4 text-right mt-8">
+                <div className="flex items-center gap-2 border-b border-gray-100 pb-3">
+                  <span className="text-base font-black text-slate-900">🛠️ قسم إدارة صيانة البيانات (الإدارة والنسخ الاحتياطي)</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] bg-orange-50 text-orange-600 font-extrabold px-3 py-1.5 rounded-xl border border-orange-100">
-                    مسرّع الأداء مفعّل تلقائياً 🚀
-                  </span>
-                </div>
-              </div>
-
-              {/* Status Alert and Performance Indicators */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-100 rounded-2xl p-5 space-y-2">
-                  <div className="flex items-center justify-between text-orange-600">
-                    <span className="text-xs font-black">كاش الـ Edge الذكي</span>
-                    <Cloud className="w-5 h-5" />
-                  </div>
-                  <p className="text-xl font-black text-gray-900 font-mono">98.4% Hit Rate</p>
-                  <p className="text-[10px] text-gray-500 font-semibold leading-relaxed">
-                    يتم تخديم الكورسات والإعلانات والصفحات الثابتة من خوادم كلوود فلير مباشرة، مما يقلل قراءات Firestore لـ 1/100!
-                  </p>
-                </div>
-
-                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl p-5 space-y-2">
-                  <div className="flex items-center justify-between text-blue-600">
-                    <span className="text-xs font-black">ضغط المحتوى (Brotli)</span>
-                    <Zap className="w-5 h-5" />
-                  </div>
-                  <p className="text-xl font-black text-gray-900 font-mono">1.35x Compression</p>
-                  <p className="text-[10px] text-gray-500 font-semibold leading-relaxed">
-                    يتم ضغط ملفات الكود والـ CSS والخطوط تلقائياً لتقليل حجم البيانات المستهلكة من باقة الطالب وتسريع تحميل المنصة.
-                  </p>
-                </div>
-
-                <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 rounded-2xl p-5 space-y-2">
-                  <div className="flex items-center justify-between text-emerald-600">
-                    <span className="text-xs font-black">حماية البوتات والـ DDoS</span>
-                    <Shield className="w-5 h-5" />
-                  </div>
-                  <p className="text-xl font-black text-gray-900 font-mono">نشط ومحمي 🔒</p>
-                  <p className="text-[10px] text-gray-500 font-semibold leading-relaxed">
-                    يقوم جدار حماية Cloudflare WAF بصد محاولات تسجيل الدخول المزعجة وحظر برمجيات القرصنة آلياً على مدار الساعة.
-                  </p>
-                </div>
-              </div>
-
-              {/* Success Notification */}
-              {cfSuccessMsg && (
-                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-xs font-bold leading-relaxed flex gap-2 items-center animate-bounce">
-                  <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
-                  <span>{cfSuccessMsg}</span>
-                </div>
-              )}
-
-              {/* Main settings container */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  مساحة مخصصة لإدارة موارد قاعدة البيانات. يمكنك تحميل نسخة احتياطية مشفرة لجميع بيانات المنصة في ملف بصيغة JSON لاستعادتها أو أرشفتها، كما يمكنك مسح جميع الجداول لتهيئة النظام من جديد وإعادته للوضع الافتراضي.
+                </p>
                 
-                {/* Left Column: API Credentials Form */}
-                <div className="bg-slate-50 border border-gray-100 rounded-2xl p-6 space-y-6">
-                  <h4 className="text-sm font-black text-slate-900 flex items-center gap-2 border-b border-gray-200 pb-3">
-                    <Settings className="w-4 h-4 text-orange-500" />
-                    بيانات اتصال Cloudflare API 🔑
-                  </h4>
-
-                  <div className="space-y-4">
-                    {/* Cloudflare Enabled Toggle */}
-                    <div className="flex items-center justify-between bg-white p-3.5 rounded-xl border border-gray-100 shadow-xs">
-                      <div>
-                        <label className="text-xs font-black text-gray-900 block">تفعيل تسريع الأداء العام للمنصة</label>
-                        <span className="text-[9px] text-gray-400 font-bold block">توجيه كافة بيانات وترافيك المنصة عبر شبكة كلوود فلير المسرّعة</span>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={cfEnabled}
-                        onChange={(e) => setCfEnabled(e.target.checked)}
-                        className="w-10 h-5 rounded-full text-orange-600 focus:ring-orange-500 cursor-pointer"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-extrabold text-gray-700 block">البريد الإلكتروني للحساب:</label>
-                        <input
-                          type="email"
-                          value={cfEmail}
-                          onChange={(e) => setCfEmail(e.target.value)}
-                          placeholder="your-cloudflare-email@gmail.com"
-                          className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-mono text-left outline-hidden focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-extrabold text-gray-700 block">رقم تعريف النطاق (Zone ID):</label>
-                        <input
-                          type="text"
-                          value={cfZoneId}
-                          onChange={(e) => setCfZoneId(e.target.value)}
-                          placeholder="e.g. 023e105e46b38c10e6a182b73"
-                          className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-mono text-left outline-hidden focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-extrabold text-gray-700 block">مفتاح الحساب العام (Global API Key):</label>
-                      <input
-                        type="password"
-                        value={cfApiKey}
-                        onChange={(e) => setCfApiKey(e.target.value)}
-                        placeholder="••••••••••••••••••••••••••••••••••••••••"
-                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-mono text-left outline-hidden focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
-                      />
-                      <span className="text-[8px] text-gray-400 block font-bold leading-normal">
-                        يمكنك استخراج هذا المفتاح من لوحة تحكم Cloudflare الخاصة بك من تبويب (My Profile - API Tokens - Global API Key).
-                      </span>
-                    </div>
-
-                    {/* Diagnostics & API Ping */}
-                    <div className="bg-white p-4 rounded-xl border border-gray-200 space-y-3 shadow-xs">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[11px] font-black text-gray-700">فحص وتشخيص الاتصال بالشبكة والـ CDN</span>
-                        <button
-                          type="button"
-                          onClick={handlePingCloudflareAPI}
-                          disabled={cfTestStatus === "testing"}
-                          className="bg-orange-50 hover:bg-orange-100 text-orange-700 font-extrabold text-[10px] px-3 py-1.5 rounded-lg border border-orange-200 flex items-center gap-1 cursor-pointer transition-all disabled:opacity-50"
-                        >
-                          {cfTestStatus === "testing" ? (
-                            <>
-                              <RefreshCw className="w-3 h-3 animate-spin" />
-                              جاري الفحص...
-                            </>
-                          ) : (
-                            <>
-                              <Activity className="w-3 h-3" />
-                              اختبار اتصال API والشبكة ⚡
-                            </>
-                          )}
-                        </button>
-                      </div>
-
-                      {cfTestStatus !== "idle" && (
-                        <div className={`p-3 rounded-lg text-[10px] leading-relaxed font-mono whitespace-pre-wrap text-left ${
-                          cfTestStatus === "success" 
-                            ? "bg-emerald-50 text-emerald-800 border border-emerald-200" 
-                            : "bg-red-50 text-red-800 border border-red-200"
-                        }`}>
-                          {cfTestResult}
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleSaveCloudflareSettings}
-                      className="w-full py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-xs rounded-xl shadow-md hover:shadow-orange-200 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                    >
-                      <Cloud className="w-4 h-4" />
-                      حفظ وتطبيق إعدادات كلوود فلير ☁️💾
-                    </button>
-                  </div>
-                </div>
-
-                {/* Right Column: Turnstile, Stream, and Purge Cache Tool */}
-                <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row gap-4 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleBackupDatabase}
+                    disabled={isBackingUp}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black px-6 py-3.5 rounded-2xl text-xs transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
+                  >
+                    <span>{isBackingUp ? "جاري إنشاء النسخة الاحتياطية... ⏳" : "📦 نسخ احتياطي لقاعدة البيانات (JSON)"}</span>
+                  </button>
                   
-                  {/* CDN Purge Cache Tool */}
-                  <div className="bg-slate-50 border border-gray-100 rounded-2xl p-6 space-y-4">
-                    <h4 className="text-sm font-black text-slate-900 flex items-center gap-2 border-b border-gray-200 pb-3">
-                      <RefreshCw className="w-4 h-4 text-orange-500" />
-                      أداة تطهير كاش خوادم التوزيع (Edge Cache Purging)
-                    </h4>
-                    <p className="text-[10px] text-gray-500 leading-relaxed font-bold">
-                      عند تعديل كورس أو إعلان أو محاضرة ولا يراها الطلاب فوراً بسبب الكاش التوزيعي، يمكنك تفريغ كاش خوادم كلوود فلير (Edge Servers) لتحديث المحتوى لكل الطلاب فورياً في جميع المحافظات:
-                    </p>
-
-                    <div className="bg-white p-3.5 rounded-xl border border-gray-100 space-y-3 shadow-xs">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-700 block">تفريغ رابط صفحة معينة (اختياري):</label>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={cfUrlToPurge}
-                            onChange={(e) => setCfUrlToPurge(e.target.value)}
-                            placeholder="https://yusr-academy.com/courses"
-                            className="flex-1 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono text-left outline-hidden focus:bg-white"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handlePurgeCloudflareCache(false)}
-                            disabled={cfPurgeStatus === "purging" || !cfUrlToPurge.trim()}
-                            className="bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-[10px] px-3 py-1.5 rounded-lg disabled:opacity-50 cursor-pointer"
-                          >
-                            تطهير الرابط 🧹
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="relative flex py-2 items-center">
-                        <div className="flex-grow border-t border-gray-100"></div>
-                        <span className="flex-shrink mx-3 text-[9px] text-gray-400 font-extrabold">أو تطهير كلي شامل</span>
-                        <div className="flex-grow border-t border-gray-100"></div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handlePurgeCloudflareCache(true)}
-                        disabled={cfPurgeStatus === "purging"}
-                        className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                      >
-                        {cfPurgeStatus === "purging" ? (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            جاري تطهير كافة خوادم الـ Edge حول العالم...
-                          </>
-                        ) : (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5" />
-                            تفريغ كاش المنصة بالكامل (Purge Everything) 🧹
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Cloudflare Turnstile Bot Protection */}
-                  <div className="bg-slate-50 border border-gray-100 rounded-2xl p-6 space-y-4">
-                    <h4 className="text-sm font-black text-slate-900 flex items-center gap-2 border-b border-gray-200 pb-3">
-                      <Shield className="w-4 h-4 text-orange-500" />
-                      تأمين التسجيل بنظام Cloudflare Turnstile (مكافحة البوتات)
-                    </h4>
-                    <p className="text-[10px] text-gray-500 leading-relaxed font-bold">
-                      بديل آمن وخصوصي لنظام ريكابتشا (Google reCAPTCHA). يقوم بالتحقق من أن المستخدم إنسان حقيقي في خلفية الموقع دون إرهاقه بحل ألغاز الصور، مما يؤمن حماية قصوى وموثوقية عالية لباقة الطالب وسرعة قاعدة البيانات.
-                    </p>
-
-                    <div className="space-y-3.5 bg-white p-4 rounded-xl border border-gray-100 shadow-xs">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-extrabold text-gray-700 block">مفتاح الموقع (Site Key):</label>
-                          <input
-                            type="text"
-                            value={cfTurnstileSiteKey}
-                            onChange={(e) => setCfTurnstileSiteKey(e.target.value)}
-                            placeholder="0x4AAAAAA..."
-                            className="w-full px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono text-left outline-hidden focus:bg-white"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-extrabold text-gray-700 block">المفتاح السري (Secret Key):</label>
-                          <input
-                            type="password"
-                            value={cfTurnstileSecretKey}
-                            onChange={(e) => setCfTurnstileSecretKey(e.target.value)}
-                            placeholder="••••••••••••••••••"
-                            className="w-full px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono text-left outline-hidden focus:bg-white"
-                          />
-                        </div>
-                      </div>
-                      <span className="text-[8.5px] text-amber-600 block font-black leading-relaxed">
-                        💡 يرجى استخراج هذه المفاتيح من لوحة تحكم Cloudflare Turnstile لزيادة تأمين صفحة التسجيل وتفعيل الحماية الذكية للطلاب.
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Cloudflare Stream Section */}
-                  <div className="bg-slate-50 border border-gray-100 rounded-2xl p-6 space-y-4">
-                    <h4 className="text-sm font-black text-slate-900 flex items-center gap-2 border-b border-gray-200 pb-3">
-                      <Play className="w-4 h-4 text-orange-500" />
-                      بث الفيديوهات والدروس الذكي (Cloudflare Stream Secure Video CDN)
-                    </h4>
-                    <p className="text-[10px] text-gray-500 leading-relaxed font-bold">
-                      أفضل منصة بث على مستوى العالم لحماية الفيديوهات التعليمية من السرقة والتسجيل مع ميزة البث الفوري بدون تقطيع للطلاب حتى على سرعات الإنترنت الضعيفة.
-                    </p>
-
-                    <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-xs space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-black text-slate-900 cursor-pointer flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={cfStreamEnabled}
-                            onChange={(e) => setCfStreamEnabled(e.target.checked)}
-                            className="rounded-sm border-gray-300 text-orange-600 focus:ring-orange-500 cursor-pointer"
-                          />
-                          <span>تفعيل البث المحمي والمشفر عبر Cloudflare Stream CDN</span>
-                        </label>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-extrabold text-gray-700 block">معرف الحساب (Account ID):</label>
-                          <input
-                            type="text"
-                            value={cfStreamAccountID}
-                            onChange={(e) => setCfStreamAccountID(e.target.value)}
-                            placeholder="e.g. b8579cfef62da9a79"
-                            className="w-full px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono text-left outline-hidden focus:bg-white"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-extrabold text-gray-700 block">مفتاح الوصول (API Token):</label>
-                          <input
-                            type="password"
-                            value={cfStreamToken}
-                            onChange={(e) => setCfStreamToken(e.target.value)}
-                            placeholder="••••••••••••••••••"
-                            className="w-full px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono text-left outline-hidden focus:bg-white"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
+                  <button
+                    type="button"
+                    onClick={handleClearAllData}
+                    disabled={isClearing}
+                    className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-black px-6 py-3.5 rounded-2xl text-xs transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
+                  >
+                    <span>{isClearing ? "جاري تهيئة قاعدة البيانات... ⏳" : "🗑️ مسح وإعادة تهيئة جميع بيانات المنصة"}</span>
+                  </button>
                 </div>
               </div>
-
-              {/* BRAND NEW: Interactive Step-by-Step Custom Domain to Cloudflare Setup Guide */}
-              <div className="bg-white border border-gray-100 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xs">
-                <div className="border-b border-gray-100 pb-5 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600">
-                          <Globe className="w-5 h-5" />
-                        </div>
-                        <h4 className="text-base font-black text-slate-900">
-                          معالج ربط الدومين الخاص بك بالمنصة 🌐🔗
-                        </h4>
-                      </div>
-                      <p className="text-xs text-gray-500 font-bold leading-relaxed">
-                        اختر طريقة الربط المناسبة لتشغيل المنصة تحت اسم النطاق الخاص بك <strong className="text-orange-600 font-mono">yasser.cc</strong>
-                      </p>
-                    </div>
-
-                    {/* Method Selector Tabs */}
-                    <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-xl self-start sm:self-center">
-                      <button
-                        type="button"
-                        onClick={() => setCfLinkMethod("github")}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1 ${
-                          cfLinkMethod === "github"
-                            ? "bg-purple-700 text-white shadow-xs"
-                            : "text-gray-600 hover:text-gray-900 hover:bg-white/50"
-                        }`}
-                      >
-                        <Github className="w-3.5 h-3.5" />
-                        🐱 الرفع على GitHub والربط بالدومين (سهل وسريع ⚡)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCfLinkMethod("worker")}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1 ${
-                          cfLinkMethod === "worker"
-                            ? "bg-orange-600 text-white shadow-xs"
-                            : "text-gray-600 hover:text-gray-900 hover:bg-white/50"
-                        }`}
-                      >
-                        ⚡ طريقة الوكيل الذكي (Workers)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCfLinkMethod("dns")}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1 ${
-                          cfLinkMethod === "dns"
-                            ? "bg-orange-600 text-white shadow-xs"
-                            : "text-gray-600 hover:text-gray-900 hover:bg-white/50"
-                        }`}
-                      >
-                        📁 ربط سجلات DNS المباشر
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {cfLinkMethod === "github" ? (
-                  <div className="space-y-6 text-right font-sans">
-                    <div className="bg-purple-50 border border-purple-100 rounded-2xl p-5 flex gap-4 items-start shadow-xs">
-                      <span className="text-2xl">⚡</span>
-                      <div className="space-y-1.5 text-purple-950">
-                        <h5 className="text-sm font-black">أسهل وأسرع طريقة لتشغيل موقعك على دومينك الخاص yasser.cc مجاناً 100%!</h5>
-                        <p className="text-xs leading-relaxed font-bold opacity-90">
-                          بما أن منصات التطوير السحابية تحتاج إعدادات متقدمة للربط المباشر، فإن أفضل وأقوى طريقة لتشغيل أكاديميتك على دومينك المخصص <strong className="font-black text-purple-900 underline">yasser.cc</strong> وبشكل مجاني بالكامل وبشهادة SSL آمنة هي عبر <strong className="font-extrabold text-purple-900">رفع الكود إلى GitHub ثم ربطه بخدمة Vercel أو GitHub Pages</strong>.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Option 1: Vercel - Highly Recommended */}
-                      <div className="border border-purple-100 bg-white hover:border-purple-300 rounded-2xl p-5 space-y-4 transition-all hover:shadow-xs flex flex-col justify-between">
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2">
-                            <span className="p-1.5 rounded-xl bg-black text-white text-[10px] font-black font-sans">▲</span>
-                            <h5 className="text-xs font-black text-gray-950">الخيار الأول: خدمة Vercel (موصى به لـ React & Vite)</h5>
-                          </div>
-                          <p className="text-[11px] text-gray-500 leading-relaxed font-bold">
-                            تعتبر Vercel المنصة السحابية الأقوى والأسهل لاستضافة تطبيقات React و TypeScript. تقوم بجلب الكود من مستودع الـ GitHub الخاص بك فوراً، وتقوم ببنائه وتفعيله، وتوفر شهادة أمان SSL تلقائية ومجانية لاسم النطاق الخاص بك!
-                          </p>
-                          <ul className="text-[11px] text-gray-600 font-bold space-y-2 list-disc pl-0 pr-4">
-                            <li>سريعة جداً وتدعم بناء التطبيق بضغطة زر واحدة.</li>
-                            <li>تحديث تلقائي للموقع بمجرد تعديل أو إضافة أي كود في مستودع GitHub.</li>
-                            <li>تمنحك لوحة تحكم كاملة لقياس سرعة الموقع وإحصائيات الزوار.</li>
-                          </ul>
-                        </div>
-
-                        <div className="pt-4 border-t border-gray-50 space-y-2">
-                          <span className="text-[10px] text-purple-700 font-black block">طريقة الربط بالدومين yasser.cc في Vercel:</span>
-                          <p className="text-[10px] text-gray-500 font-bold leading-relaxed">
-                            ادخل لوحة تحكم مشروعك في Vercel، اذهب إلى <strong className="text-gray-800">Settings &gt; Domains</strong>، واكتب الدومين <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-gray-800 font-bold">yasser.cc</span> ثم قم بإضافة سجل CNAME في حساب Cloudflare الخاص بك يوجه إلى <span className="font-mono bg-purple-50 text-purple-800 px-1 py-0.5 rounded font-bold">cname.vercel-dns.com</span>.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Option 2: GitHub Pages */}
-                      <div className="border border-gray-100 bg-white hover:border-purple-200 rounded-2xl p-5 space-y-4 transition-all hover:shadow-xs flex flex-col justify-between">
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2">
-                            <span className="p-1.5 rounded-xl bg-slate-900 text-white"><Github className="w-4 h-4" /></span>
-                            <h5 className="text-xs font-black text-gray-950">الخيار الثاني: استضافة GitHub Pages المجانية</h5>
-                          </div>
-                          <p className="text-[11px] text-gray-500 leading-relaxed font-bold">
-                            هي ميزة مقدمة مجاناً من شركة GitHub تتيح لك نشر وتفعيل المواقع الإلكترونية والملفات الساكنة مباشرة من مستودع الكود الخاص بك دون الحاجة لأي خوادم خارجية أو منصات إضافية.
-                          </p>
-                          <ul className="text-[11px] text-gray-600 font-bold space-y-2 list-disc pl-0 pr-4">
-                            <li>مثالية للمواقع الشخصية والصفحات التعريفية والخدمات الساكنة.</li>
-                            <li>استضافة مجانية ومستقرة 100% مدعومة من خوادم GitHub مباشرة.</li>
-                            <li>سهلة الاستخدام وتدعم اسم نطاقك المخصص مجاناً.</li>
-                          </ul>
-                        </div>
-
-                        <div className="pt-4 border-t border-gray-50 space-y-2">
-                          <span className="text-[10px] text-purple-700 font-black block">طريقة الربط بالدومين yasser.cc في GitHub Pages:</span>
-                          <p className="text-[10px] text-gray-500 font-bold leading-relaxed">
-                            في مستودع المشروع في GitHub، اذهب إلى تبويب <strong className="text-gray-800">Settings &gt; Pages</strong>، وفي حقل <strong className="text-gray-800">Custom Domain</strong> اكتب الدومين <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-gray-800 font-bold">yasser.cc</span>، وقم بتوجيه سجل الـ CNAME في كلوود فلير إلى حساب الـ GitHub Pages الخاص بك.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="border border-purple-100 rounded-2xl p-5 space-y-4 bg-slate-50/50">
-                      <h5 className="text-xs font-black text-purple-900 flex items-center gap-1.5">
-                        <Github className="w-4 h-4" />
-                        دليل خطوات تصدير الكود وربطه بالتفصيل الممل:
-                      </h5>
-
-                      <div className="relative pl-0 pr-8 border-r-2 border-purple-200 space-y-5">
-                        <div className="relative">
-                          <span className="absolute -right-[41px] top-0.5 w-6 h-6 rounded-full bg-purple-700 text-white flex items-center justify-center font-mono text-xs font-black shadow-xs">
-                            1
-                          </span>
-                          <div className="space-y-1">
-                            <h6 className="text-xs font-black text-gray-900">تصدير مشروعك إلى مستودع GitHub:</h6>
-                            <p className="text-[11px] text-gray-500 font-bold leading-relaxed">
-                              اضغط على زر القائمة الجانبية أو أيقونة التصدير في واجهة التطوير الحالية (Google AI Studio Builder) في الزاوية العلوية، ثم اختر <strong className="text-slate-800">"Export to GitHub"</strong>. قم بالموافقة على الصلاحيات وسيتم إنشاء مستودع خاص (Repository) جديد فوراً يحتوي على الكود الكامل للمنصة!
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="relative">
-                          <span className="absolute -right-[41px] top-0.5 w-6 h-6 rounded-full bg-purple-700 text-white flex items-center justify-center font-mono text-xs font-black shadow-xs">
-                            2
-                          </span>
-                          <div className="space-y-1.5">
-                            <h6 className="text-xs font-black text-gray-900">التسجيل والربط بمنصة الاستضافة (Vercel - موصى به):</h6>
-                            <p className="text-[11px] text-gray-500 font-bold leading-relaxed">
-                              توجه إلى موقع <a href="https://vercel.com" target="_blank" rel="noopener noreferrer" className="text-purple-700 underline font-black font-mono">vercel.com</a> وسجل الدخول باستخدام حسابك في <strong className="text-gray-800">GitHub</strong>. اضغط على زر <strong className="text-slate-800">Add New &gt; Project</strong>، ثم اختر مستودع الكود الذي تم تصديره للتو واضغط على <strong className="text-purple-700 font-black">Import</strong>، ثم اضغط على زر <strong className="text-purple-700 font-black">Deploy</strong> وسيقوم النظام ببنائه خلال 30 ثانية فقط!
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="relative">
-                          <span className="absolute -right-[41px] top-0.5 w-6 h-6 rounded-full bg-purple-700 text-white flex items-center justify-center font-mono text-xs font-black shadow-xs">
-                            3
-                          </span>
-                          <div className="space-y-1">
-                            <h6 className="text-xs font-black text-gray-900">ربط الدومين المخصص yasser.cc:</h6>
-                            <p className="text-[11px] text-gray-500 font-bold leading-relaxed">
-                              في لوحة تحكم Vercel، اذهب إلى <strong className="text-slate-800">Settings &gt; Domains</strong>، واكتب الدومين الخاص بك <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-gray-800 font-bold">yasser.cc</span> أو <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-gray-800 font-bold">www.yasser.cc</span> ثم اضغط <strong className="text-purple-700 font-black">Add</strong>. ستعرض لك المنصة قيم الـ DNS المطلوبة لربط الدومين بنجاح.
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="relative">
-                          <span className="absolute -right-[41px] top-0.5 w-6 h-6 rounded-full bg-purple-700 text-white flex items-center justify-center font-mono text-xs font-black shadow-xs">
-                            4
-                          </span>
-                          <div className="space-y-1">
-                            <h6 className="text-xs font-black text-gray-900">تحديث سجلات Cloudflare لتشغيل الدومين:</h6>
-                            <p className="text-[11px] text-gray-500 font-bold leading-relaxed">
-                              توجه إلى لوحة تحكم Cloudflare لحسابك، واذهب إلى إدارة سجلات الـ DNS للدومين <span className="font-mono text-gray-800 font-bold">yasser.cc</span>، وقم بإضافة سجل من نوع <strong className="text-purple-700 font-mono">CNAME</strong> بالاسم <span className="font-mono text-gray-800 font-bold">www</span> والقيمة <span className="font-mono text-purple-700 font-bold">cname.vercel-dns.com</span>، أو سجل من نوع <strong className="text-purple-700 font-mono">A</strong> بالاسم <span className="font-mono text-gray-800 font-bold">@</span> والقيمة <span className="font-mono text-purple-700 font-bold">76.76.21.21</span>. تأكد من ضبط الـ Proxy إلى <span className="text-amber-600 font-bold">DNS Only (معطل ☁️)</span> لتفادي أي تعارض في البداية، وسيتم تفعيل الموقع وشهادة الـ SSL بثوانٍ معدودة!
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 flex flex-col sm:flex-row items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-emerald-600 font-black block">🟢 ميزات هذه الطريقة</span>
-                        <p className="text-[11px] text-gray-600 font-bold leading-relaxed">
-                          عند الاستضافة عبر Vercel أو GitHub Pages، لن تواجه مشاكل الـ 522 Timeouts على الإطلاق، كما أن موقعك سيكون في غاية السرعة بفضل شبكات الـ CDN العالمية المتطورة!
-                        </p>
-                      </div>
-                      <a
-                        href="https://vercel.com"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="bg-purple-700 hover:bg-purple-800 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl transition-all shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
-                      >
-                        زيارة منصة Vercel الآن ↗️
-                      </a>
-                    </div>
-                  </div>
-                ) : cfLinkMethod === "worker" ? (
-                  <div className="space-y-6 text-right font-sans">
-                    <div className="bg-emerald-50/70 border border-emerald-100 rounded-2xl p-4 flex gap-3 items-start">
-                      <span className="text-xl">💡</span>
-                      <div className="space-y-1 text-emerald-900">
-                        <h5 className="text-xs font-black">لماذا نوصي بـ Cloudflare Workers؟</h5>
-                        <p className="text-[11px] leading-relaxed font-bold opacity-90">
-                          منصات الاستضافة السحابية الحديثة (مثل Google AI Studio / Cloud Run) تستخدم توجيهاً داخلياً معقداً يعتمد على ترويسة <span className="font-mono bg-emerald-100 px-1 rounded text-emerald-800">Host Header</span>. 
-                          باستخدام <strong className="font-extrabold text-emerald-950">Cloudflare Workers</strong> (المجاني بالكامل لـ 100,000 زائر يومياً)، نقوم بإنشاء وكيل ذكي يقوم بتمرير الترافيك بسلاسة مع الحفاظ على الدومين الخاص بك <span className="font-mono underline text-emerald-950">yasser.cc</span> في شريط العنوان دون أي مشاكل تقنية أو أخطاء SSL!
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      {/* Worker steps */}
-                      <div className="relative pl-0 pr-8 border-r-2 border-orange-100 space-y-6">
-                        {/* Step 1 */}
-                        <div className="relative">
-                          <span className="absolute -right-[41px] top-0.5 w-6 h-6 rounded-full bg-orange-600 text-white flex items-center justify-center font-mono text-xs font-black shadow-xs">
-                            1
-                          </span>
-                          <div className="space-y-1">
-                            <h5 className="text-xs font-black text-gray-900">إنشاء تطبيق Worker جديد:</h5>
-                            <p className="text-[11px] text-gray-500 font-bold leading-relaxed">
-                              توجه إلى حسابك في كلوود فلير، ومن القائمة الجانبية اضغط على <strong className="text-slate-800">Workers & Pages</strong> ثم اضغط على زر <strong className="text-slate-800">Create Application</strong> ثم <strong className="text-slate-800">Create Worker</strong>. اسم الـ Worker يمكن أن يكون أي شيء (مثال: <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-gray-700">yassers-proxy</span>)، ثم اضغط <strong className="text-orange-600">Deploy</strong>.
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Step 2 */}
-                        <div className="relative">
-                          <span className="absolute -right-[41px] top-0.5 w-6 h-6 rounded-full bg-orange-600 text-white flex items-center justify-center font-mono text-xs font-black shadow-xs">
-                            2
-                          </span>
-                          <div className="space-y-2">
-                            <h5 className="text-xs font-black text-gray-900">لصق الكود البرمجي المخصص:</h5>
-                            <p className="text-[11px] text-gray-500 font-bold leading-relaxed">
-                              اضغط على زر <strong className="text-slate-800">Edit Code</strong> في صفحة الـ Worker الجديد، واحذف الكود الافتراضي بالكامل، والصق مكانه الكود التالي المصمم خصيصاً لأكاديميتك:
-                            </p>
-
-                            <div className="relative bg-slate-900 text-slate-100 p-4 rounded-xl font-mono text-left text-[11px] max-h-[220px] overflow-y-auto direction-ltr">
-                              <pre className="whitespace-pre">{`export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    
-    // توجيه الطلبات إلى موقع المنصة الأصلي
-    const TARGET_HOST = "yassers.ai.studio";
-    url.hostname = TARGET_HOST;
-    
-    // إنشاء طلب جديد برأسية Host معدلة لتفادي مشاكل الحماية
-    const modifiedRequest = new Request(url, {
-      method: request.method,
-      headers: request.headers,
-      body: request.body,
-      redirect: "manual"
-    });
-    
-    // جلب الصفحة من خادم المنصة الرئيسي
-    let response = await fetch(modifiedRequest);
-    
-    // الاحتفاظ بالردود وتسهيل الروابط التفاعلية للطلاب
-    const responseHeaders = new Headers(response.headers);
-    responseHeaders.set("Access-Control-Allow-Origin", "*");
-    
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: responseHeaders
-    });
-  }
-};`}</pre>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(`export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    
-    // توجيه الطلبات إلى موقع المنصة الأصلي
-    const TARGET_HOST = "yassers.ai.studio";
-    url.hostname = TARGET_HOST;
-    
-    // إنشاء طلب جديد برأسية Host معدلة لتفادي مشاكل الحماية
-    const modifiedRequest = new Request(url, {
-      method: request.method,
-      headers: request.headers,
-      body: request.body,
-      redirect: "manual"
-    });
-    
-    // جلب الصفحة من خادم المنصة الرئيسي
-    let response = await fetch(modifiedRequest);
-    
-    // الاحتفاظ بالردود وتسهيل الروابط التفاعلية للطلاب
-    const responseHeaders = new Headers(response.headers);
-    responseHeaders.set("Access-Control-Allow-Origin", "*");
-    
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: responseHeaders
-    });
-  }
-};`);
-                                  alert("تم نسخ الكود البرمجي للمنصة بنجاح! جاهز للصقه بالـ Worker.");
-                                }}
-                                className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white font-extrabold text-[10px] py-1 px-2.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer"
-                              >
-                                <Copy className="w-3 h-3" />
-                                نسخ الكود 📋
-                              </button>
-                            </div>
-                            <p className="text-[10px] text-amber-600 font-bold">
-                              💡 بعد لصق الكود، اضغط على الزر الأزرق في الأعلى <strong className="text-amber-800">Save and Deploy</strong> لتنشيط الكود فوراً.
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Step 3 */}
-                        <div className="relative">
-                          <span className="absolute -right-[41px] top-0.5 w-6 h-6 rounded-full bg-orange-600 text-white flex items-center justify-center font-mono text-xs font-black shadow-xs">
-                            3
-                          </span>
-                          <div className="space-y-1">
-                            <h5 className="text-xs font-black text-gray-900">ربط الدومين الخاص بك (Custom Domain):</h5>
-                            <p className="text-[11px] text-gray-500 font-bold leading-relaxed">
-                              عُد لصفحة الـ Worker السابقة في لوحة تحكم Cloudflare، واذهب إلى تبويب <strong className="text-slate-800">Settings</strong> ثم <strong className="text-slate-800">Triggers</strong> (أو في الواجهة الحديثة تجدها في تبويب <strong className="text-slate-800">Domains & Routes</strong>). 
-                              اضغط على زر <strong className="text-orange-600">Add Custom Domain</strong> واكتب نطاقك الخاص بالكامل: <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-slate-800 font-bold">yasser.cc</span> ثم اضغط لتأكيد الإضافة.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-emerald-600 font-black block">🟢 فحص فوري ومتابعة</span>
-                        <p className="text-[11px] text-gray-600 font-bold leading-relaxed">
-                          بمجرد القيام بهذه الخطوات، سيقوم Cloudflare بتهيئة شهادة أمان SSL تلقائياً لنطاقك <span className="font-mono text-xs text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded">yasser.cc</span> وسيعمل موقعك مباشرة!
-                        </p>
-                      </div>
-                      <a
-                        href="https://dash.cloudflare.com"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl transition-all shadow-xs inline-flex items-center gap-1.5"
-                      >
-                        فتح لوحة تحكم كلوود فلير الآن ↗️
-                      </a>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    {/* Step Progress Bar */}
-                    <div className="grid grid-cols-4 gap-2 bg-slate-50 p-2.5 rounded-2xl">
-                      {[
-                        { step: 1, label: "إضافة الموقع" },
-                        { step: 2, label: "خوادم الأسماء NS" },
-                        { step: 3, label: "سجلات الـ DNS" },
-                        { step: 4, label: "فحص وتأكيد الربط" }
-                      ].map((s) => (
-                        <button
-                          key={s.step}
-                          type="button"
-                          onClick={() => setDnsWizardStep(s.step)}
-                          className={`py-2 px-1 rounded-xl text-center transition-all cursor-pointer ${
-                            dnsWizardStep === s.step
-                              ? "bg-orange-600 text-white font-black text-[10px] sm:text-xs shadow-xs"
-                              : dnsWizardStep > s.step
-                              ? "bg-orange-50 text-orange-700 font-black text-[10px] sm:text-xs"
-                              : "text-gray-400 font-bold text-[10px] sm:text-xs hover:bg-white/50"
-                          }`}
-                        >
-                          <span className="block font-mono text-[9px] opacity-75 font-black">خطوة {s.step}</span>
-                          <span className="block truncate">{s.label}</span>
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Wizard Steps Content */}
-                    <div className="bg-slate-50/50 border border-slate-100/80 rounded-2xl p-5 min-h-[220px] flex flex-col justify-between">
-                      {dnsWizardStep === 1 && (
-                        <div className="space-y-4">
-                          <div className="space-y-1">
-                            <span className="text-[10px] bg-orange-100 text-orange-800 px-2.5 py-1 rounded-md font-black">الخطوة 1: إضافة نطاقك في حساب Cloudflare</span>
-                            <h5 className="text-xs font-black text-gray-900 mt-2">تسجيل النطاق في كلوود فلير:</h5>
-                            <p className="text-[11px] text-gray-500 leading-relaxed font-bold">
-                              قم بإنشاء حساب مجاني أو تسجيل الدخول في موقع{" "}
-                              <a href="https://dash.cloudflare.com" target="_blank" rel="noopener noreferrer" className="text-orange-600 underline font-black inline-flex items-center gap-0.5">
-                                dash.cloudflare.com
-                              </a>
-                              ، ثم اضغط على زر <strong className="text-gray-900">"Add a Site"</strong> واكتب اسم نطاقك بدون أي زيادات (مثال: <span className="font-mono text-xs text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded">yasser.cc</span>).
-                            </p>
-                          </div>
-
-                          <div className="space-y-2 max-w-md">
-                            <label className="text-[10px] font-black text-gray-700 block">أدخل اسم نطاقك الخاص للمتابعة:</label>
-                            <div className="flex gap-2">
-                              <input
-                                type="text"
-                                value={userDomain}
-                                onChange={(e) => setUserDomain(e.target.value)}
-                                placeholder="yasser.cc"
-                                className="flex-1 px-3.5 py-2 bg-white border border-gray-200 rounded-xl text-xs font-mono text-left outline-hidden focus:ring-1 focus:ring-orange-500 focus:border-orange-500"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setDnsWizardStep(2)}
-                                className="bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-[11px] px-4 py-2 rounded-xl transition-all cursor-pointer shadow-xs"
-                              >
-                                التالي ➡️
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {dnsWizardStep === 2 && (
-                        <div className="space-y-4">
-                          <div className="space-y-1">
-                            <span className="text-[10px] bg-orange-100 text-orange-800 px-2.5 py-1 rounded-md font-black">الخطوة 2: تغيير خوادم الأسماء (Nameservers)</span>
-                            <h5 className="text-xs font-black text-gray-900 mt-2">تحديث قيم Nameservers الخاصة بالنطاق:</h5>
-                            <p className="text-[11px] text-gray-500 leading-relaxed font-bold">
-                              اذهب إلى الشركة التي قمت بشراء الدومين منها (مثل GoDaddy أو Namecheap أو Hostinger)، وادخل إلى صفحة إدارة الـ DNS والـ Nameservers الخاصة بالدومين، ثم قم بتعديلها لتصبح كالتالي:
-                            </p>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
-                            <div className="bg-white p-3 rounded-xl border border-gray-200 flex items-center justify-between shadow-xs">
-                              <div className="space-y-0.5 text-left">
-                                <span className="text-[9px] text-gray-400 font-bold block">Nameserver 1</span>
-                                <span className="text-xs font-mono font-black text-slate-900">dana.ns.cloudflare.com</span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  navigator.clipboard.writeText("dana.ns.cloudflare.com");
-                                  alert("تم نسخ خادم الأسماء الأول بنجاح!");
-                                }}
-                                className="text-orange-600 hover:text-orange-700 font-extrabold text-[10px] bg-orange-50 px-2.5 py-1.5 rounded-lg cursor-pointer"
-                              >
-                                نسخ 📋
-                              </button>
-                            </div>
-
-                            <div className="bg-white p-3 rounded-xl border border-gray-200 flex items-center justify-between shadow-xs">
-                              <div className="space-y-0.5 text-left">
-                                <span className="text-[9px] text-gray-400 font-bold block">Nameserver 2</span>
-                                <span className="text-xs font-mono font-black text-slate-900">olga.ns.cloudflare.com</span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  navigator.clipboard.writeText("olga.ns.cloudflare.com");
-                                  alert("تم نسخ خادم الأسماء الثاني بنجاح!");
-                                }}
-                                className="text-orange-600 hover:text-orange-700 font-extrabold text-[10px] bg-orange-50 px-2.5 py-1.5 rounded-lg cursor-pointer"
-                              >
-                                نسخ 📋
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="flex justify-between items-center pt-2">
-                            <button
-                              type="button"
-                              onClick={() => setDnsWizardStep(1)}
-                              className="bg-white border border-gray-200 text-gray-600 font-extrabold text-[11px] px-3.5 py-2 rounded-xl hover:bg-gray-50 cursor-pointer"
-                            >
-                              ⬅️ السابق
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDnsWizardStep(3)}
-                              className="bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-[11px] px-4 py-2 rounded-xl transition-all cursor-pointer shadow-xs"
-                            >
-                              التالي ➡️
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {dnsWizardStep === 3 && (
-                        <div className="space-y-4">
-                          <div className="space-y-1">
-                            <span className="text-[10px] bg-orange-100 text-orange-800 px-2.5 py-1 rounded-md font-black">الخطوة 3: إعداد سجلات DNS وتوجيه الدومين</span>
-                            <h5 className="text-xs font-black text-gray-900 mt-2">قم بإضافة هذه السجلات لتوجيه الطلاب إلى الخادم:</h5>
-                            <p className="text-[11px] text-gray-500 leading-relaxed font-bold">
-                              في لوحة تحكم Cloudflare، توجه إلى قسم <strong className="text-gray-900">"DNS"</strong> ثم اضغط <strong className="text-gray-900">"Add record"</strong> وقم بإدخال السجلين التاليين لربطهما بخادم المنصة بشكل آمن:
-                            </p>
-                          </div>
-
-                          <div className="overflow-x-auto border border-gray-200 rounded-xl bg-white">
-                            <table className="w-full text-xs text-right text-gray-500 font-sans">
-                              <thead className="bg-gray-50 text-slate-700 font-black text-[10px] border-b border-gray-200">
-                                <tr>
-                                  <th className="px-3 py-2">النوع (Type)</th>
-                                  <th className="px-3 py-2">الاسم (Name)</th>
-                                  <th className="px-3 py-2">القيمة / الوجهة (Value)</th>
-                                  <th className="px-3 py-2 text-center">حالة الحماية (Proxy)</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-gray-100 font-medium font-bold">
-                                <tr>
-                                  <td className="px-3 py-2.5 font-mono text-orange-700 font-bold">A</td>
-                                  <td className="px-3 py-2.5 font-mono">@</td>
-                                  <td className="px-3 py-2.5 font-mono">153.60.56.241</td>
-                                  <td className="px-3 py-2.5 text-center">
-                                    <span className="bg-orange-50 text-orange-600 text-[10px] font-black px-2 py-0.5 rounded-md border border-orange-100 font-black">
-                                      Proxied (نشط ☁️)
-                                    </span>
-                                  </td>
-                                </tr>
-                                <tr>
-                                  <td className="px-3 py-2.5 font-mono text-orange-700 font-bold">CNAME</td>
-                                  <td className="px-3 py-2.5 font-mono">www</td>
-                                  <td className="px-3 py-2.5 font-mono">{userDomain || "yourdomain.com"}</td>
-                                  <td className="px-3 py-2.5 text-center">
-                                    <span className="bg-orange-50 text-orange-600 text-[10px] font-black px-2 py-0.5 rounded-md border border-orange-100 font-black">
-                                      Proxied (نشط ☁️)
-                                    </span>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </div>
-
-                          <div className="flex justify-between items-center pt-2">
-                            <button
-                              type="button"
-                              onClick={() => setDnsWizardStep(2)}
-                              className="bg-white border border-gray-200 text-gray-600 font-extrabold text-[11px] px-3.5 py-2 rounded-xl hover:bg-gray-50 cursor-pointer"
-                            >
-                              ⬅️ السابق
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDnsWizardStep(4)}
-                              className="bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-[11px] px-4 py-2 rounded-xl transition-all cursor-pointer shadow-xs"
-                            >
-                              التالي ➡️
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {dnsWizardStep === 4 && (
-                        <div className="space-y-4">
-                          <div className="space-y-1">
-                            <span className="text-[10px] bg-orange-100 text-orange-800 px-2.5 py-1 rounded-md font-black">الخطوة 4: فحص وتأكيد نجاح ربط الدومين</span>
-                            <h5 className="text-xs font-black text-gray-900 mt-2">التحقق من تفعيل الـ Cloudflare DNS:</h5>
-                            <p className="text-[11px] text-gray-500 leading-relaxed font-bold">
-                              أدخل اسم الدومين الخاص بك بالأسفل ثم اضغط على زر الفحص ليقوم النظام آلياً بمحاكاة فحص السجلات ونشر خوادم الـ Edge والتحقق من صلاحية شهادة SSL التشفيرية لموقعك.
-                            </p>
-                          </div>
-
-                          <div className="bg-white p-4 rounded-xl border border-gray-200 space-y-3 shadow-xs">
-                            <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center">
-                              <input
-                                type="text"
-                                value={userDomain}
-                                onChange={(e) => setUserDomain(e.target.value)}
-                                placeholder="yourdomain.com"
-                                className="flex-1 px-3.5 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-left outline-hidden focus:bg-white"
-                              />
-                              <button
-                                type="button"
-                                onClick={handleSimulateDnsCheck}
-                                disabled={dnsCheckStatus === "checking"}
-                                className="bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl transition-all cursor-pointer shadow-xs disabled:opacity-50 flex items-center justify-center gap-1"
-                              >
-                                {dnsCheckStatus === "checking" ? (
-                                  <>
-                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                    جاري الاستعلام الفعلي...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Globe className="w-3.5 h-3.5" />
-                                    فحص حالة ربط الدومين بنظام DNS ⚡
-                                  </>
-                                )}
-                              </button>
-                            </div>
-
-                            {dnsCheckStatus !== "idle" && (
-                              <div className={`p-4 rounded-xl text-[11px] leading-relaxed font-mono whitespace-pre-wrap text-left ${
-                                dnsCheckStatus === "success" 
-                                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200" 
-                                  : "bg-red-50 text-red-800 border border-red-200"
-                              }`}>
-                                {dnsCheckResult}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="flex justify-between items-center pt-2">
-                            <button
-                              type="button"
-                              onClick={() => setDnsWizardStep(3)}
-                              className="bg-white border border-gray-200 text-gray-600 font-extrabold text-[11px] px-3.5 py-2 rounded-xl hover:bg-gray-50 cursor-pointer"
-                            >
-                              ⬅️ السابق
-                            </button>
-                            <span className="text-[10px] text-emerald-600 font-black">
-                              🔒 شهادة SSL/TLS الآمنة مفعّلة تلقائياً بمجرد إتمام الربط!
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
             </motion.div>
           )}
+
 
           {activeTab === "tickets" && (
             <motion.div
@@ -4663,6 +3695,421 @@ export default function AdminDashboard({
                   يرجى إنشاء كورس أو اختيار كورس نشط لعرض الطلاب والمشتركين والتحكم بهم.
                 </div>
               )}
+            </motion.div>
+          )}
+
+          {activeTab === "books" && (
+            <motion.div
+              key="books-pane"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-8 text-right font-sans"
+              dir="rtl"
+            >
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-100 pb-4 gap-4">
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                    <ShoppingBag className="w-5 h-5 text-red-600" />
+                    <span>إدارة متجر الكتب المطبوعة وطلبات الشحن والتوصيل 🚚📦</span>
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-1">
+                    أضف مذكرات الشرح والكتب المطبوعة والملخصات لبيعها للطلاب، وتتبع حالات الشحن وشركات التوصيل لجميع الطلبات على مستوى الجمهورية.
+                  </p>
+                </div>
+              </div>
+
+              {/* SECTION 1: BOOKS INVENTORY MANAGEMENT */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                {/* Right Form: Create Book */}
+                <div className="lg:col-span-4 space-y-6">
+                  <div className="bg-gray-50 border border-gray-100 rounded-3xl p-6 space-y-4">
+                    <h4 className="text-sm font-black text-gray-900 border-b border-gray-150 pb-2.5 flex items-center gap-1.5">
+                      <Plus className="w-4 h-4 text-red-600" />
+                      <span>إضافة كتيب/مذكرة جديدة للمتجر 📖</span>
+                    </h4>
+
+                    {bookSuccessMsg && (
+                      <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-emerald-700 text-xs font-bold text-center">
+                        {bookSuccessMsg}
+                      </div>
+                    )}
+                    {bookErrorMsg && (
+                      <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-700 text-xs font-bold text-center">
+                        {bookErrorMsg}
+                      </div>
+                    )}
+
+                    <div className="space-y-3 text-xs">
+                      <div className="space-y-1">
+                        <label className="font-bold text-gray-600">عنوان الكتاب / المذكرة *</label>
+                        <input
+                          type="text"
+                          value={bookTitle}
+                          onChange={(e) => setBookTitle(e.target.value)}
+                          placeholder="مثال: مذكرة الكيمياء العضوية - الصف الثالث الثانوي"
+                          className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs outline-hidden focus:border-red-500 text-right"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-gray-600">وصف مختصر للكتيب ومميزاته *</label>
+                        <textarea
+                          rows={3}
+                          value={bookDescription}
+                          onChange={(e) => setBookDescription(e.target.value)}
+                          placeholder="مثال: تحتوي على شرح وافٍ بالرسومات التوضيحية مع أكثر من 500 سؤال وجواب تفاعلي..."
+                          className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs outline-hidden focus:border-red-500 text-right resize-none"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="font-bold text-gray-600">السعر (ج.م) *</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={bookPrice || ""}
+                            onChange={(e) => setBookPrice(Number(e.target.value))}
+                            placeholder="مثال: 120"
+                            className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs outline-hidden focus:border-red-500 font-mono text-center"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="font-bold text-gray-600">الكمية المتوفرة *</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={bookStock || ""}
+                            onChange={(e) => setBookStock(Number(e.target.value))}
+                            placeholder="مثال: 150"
+                            className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs outline-hidden focus:border-red-500 font-mono text-center"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-gray-600">رابط صورة الغلاف (URL) - اختياري</label>
+                        <input
+                          type="text"
+                          value={bookImageUrl}
+                          onChange={(e) => setBookImageUrl(e.target.value)}
+                          placeholder="https://images.unsplash.com/..."
+                          className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-mono text-left"
+                        />
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          if (!bookTitle.trim() || !bookDescription.trim() || bookPrice <= 0 || bookStock < 0) {
+                            setBookErrorMsg("يرجى ملء جميع الحقول المطلوبة بنجاح وتحديد السعر والكمية!");
+                            return;
+                          }
+                          setBookErrorMsg("");
+                          setBookSuccessMsg("");
+
+                          const id = doc(collection(db, "books")).id;
+                          const newItem: BookStoreItem = {
+                            id,
+                            title: bookTitle.trim(),
+                            description: bookDescription.trim(),
+                            price: bookPrice,
+                            stock: bookStock,
+                            imageUrl: bookImageUrl.trim() || undefined,
+                          };
+
+                          onAddBookStoreItem?.(newItem);
+                          setBookSuccessMsg("🚀 تم إضافة الكتاب بنجاح وعرضه فورياً للطلاب في المتجر!");
+                          
+                          // reset form
+                          setBookTitle("");
+                          setBookDescription("");
+                          setBookPrice(0);
+                          setBookImageUrl("");
+                          setBookStock(100);
+
+                          setTimeout(() => {
+                            setBookSuccessMsg("");
+                          }, 4000);
+                        }}
+                        className="w-full bg-red-600 hover:bg-red-700 text-white font-extrabold py-3 rounded-xl text-xs transition-colors shadow-md hover:shadow-lg cursor-pointer"
+                      >
+                        إضافة وعرض بالمتجر فوراً 🚀
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Left Inventory List */}
+                <div className="lg:col-span-8 space-y-4">
+                  <div className="bg-white border border-gray-100 rounded-3xl p-6 space-y-4 shadow-xs">
+                    <h4 className="text-sm font-black text-gray-900 border-b border-gray-55 pb-2.5 flex items-center justify-between">
+                      <span>الكتب والمذكرات المتوفرة بالمخزن ({books.length}) 📖</span>
+                      <BookMarked className="w-4 h-4 text-red-600" />
+                    </h4>
+
+                    {books.length === 0 ? (
+                      <div className="py-12 text-center text-gray-400 text-xs">
+                        لا توجد كتب مضافة حالياً في المخزن والمنصة. استخدم النموذج باليمين للإضافة.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {books.map((book) => (
+                          <div key={book.id} className="p-3.5 bg-gray-50 rounded-2xl border border-gray-100 flex gap-3 text-right text-xs items-start">
+                            {book.imageUrl ? (
+                              <img
+                                src={book.imageUrl}
+                                alt={book.title}
+                                className="w-20 h-20 object-cover rounded-xl border border-gray-150 bg-white flex-shrink-0"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div className="w-20 h-20 bg-gray-200 rounded-xl flex items-center justify-center text-gray-400 flex-shrink-0">
+                                <BookMarked className="w-6 h-6" />
+                              </div>
+                            )}
+
+                            <div className="flex-1 min-w-0 space-y-1">
+                              <h5 className="font-black text-gray-900 truncate">{book.title}</h5>
+                              <p className="text-[10px] text-gray-400 line-clamp-2 leading-relaxed">{book.description}</p>
+                              <div className="flex justify-between items-center pt-1.5 text-[10px] font-bold text-gray-500">
+                                <span>السعر: <span className="text-red-600 font-extrabold font-mono">{book.price} ج.م</span></span>
+                                <span>المخزن: <span className="text-slate-700 font-extrabold font-mono">{book.stock} نسخة</span></span>
+                              </div>
+                              <div className="pt-2 flex justify-end">
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm("هل أنت متأكد من رغبتك في حذف هذا الكتيب نهائياً من المتجر؟")) {
+                                      onDeleteBookStoreItem?.(book.id);
+                                    }
+                                  }}
+                                  className="text-[9px] font-extrabold text-red-650 hover:text-red-800 transition-colors cursor-pointer flex items-center gap-1 bg-red-50 hover:bg-red-100 px-2 py-0.8 rounded-lg"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>حذف الكتيب 🗑️</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 2: SHIPPING ORDERS TRACKING AND STATUS UPDATES */}
+              <div className="bg-white border border-gray-100 rounded-3xl p-6 space-y-6 shadow-xs">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-50 pb-4">
+                  <div>
+                    <h4 className="text-base font-extrabold text-gray-900 flex items-center gap-2">
+                      <Truck className="w-5 h-5 text-red-600" />
+                      <span>إدارة طلبات شحن الملازم والكتب المطبوعة 🚚</span>
+                    </h4>
+                    <p className="text-xs text-gray-400">راجع عناوين الطلاب، تتبع حالة التوصيل، قم بإدخال بيانات الشحن ورقم التتبع فورياً.</p>
+                  </div>
+
+                  {/* Order Filters */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { id: "all", label: "الكل 📋" },
+                      { id: "pending", label: "في الانتظار ⏳" },
+                      { id: "shipped", label: "تم الشحن 🚚" },
+                      { id: "delivered", label: "تم التوصيل ✅" },
+                      { id: "cancelled", label: "ملغي ❌" },
+                    ].map((btn) => (
+                      <button
+                        key={btn.id}
+                        onClick={() => setOrderFilter(btn.id as any)}
+                        className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-colors cursor-pointer ${
+                          orderFilter === btn.id
+                            ? "bg-red-600 text-white"
+                            : "bg-gray-50 border border-gray-150 text-gray-600 hover:bg-gray-100"
+                        }`}
+                      >
+                        {btn.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {orderSuccessMsg && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-emerald-700 text-xs font-bold text-center">
+                    {orderSuccessMsg}
+                  </div>
+                )}
+                {orderErrorMsg && (
+                  <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-700 text-xs font-bold text-center">
+                    {orderErrorMsg}
+                  </div>
+                )}
+
+                {bookOrders.filter(o => orderFilter === "all" || o.status === orderFilter).length === 0 ? (
+                  <div className="py-12 text-center text-gray-400 text-xs">
+                    لا توجد طلبات شحن متطابقة مع التصفية الحالية.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {/* Orders List Table / Scroll */}
+                    <div className="lg:col-span-8 overflow-x-auto max-h-[600px]">
+                      <table className="w-full text-right text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-gray-50 text-gray-600 border-b border-gray-100">
+                            <th className="p-3 font-black">رقم الطلب / التاريخ</th>
+                            <th className="p-3 font-black">اسم الطالب وهاتفه</th>
+                            <th className="p-3 font-black">الكتاب المطلوب</th>
+                            <th className="p-3 font-black">العنوان بالتفصيل</th>
+                            <th className="p-3 font-black text-center">الحالة</th>
+                            <th className="p-3 font-black text-center">الإجراء</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {bookOrders
+                            .filter(o => orderFilter === "all" || o.status === orderFilter)
+                            .map((order) => (
+                              <tr key={order.id} className="hover:bg-gray-50/50">
+                                <td className="p-3">
+                                  <span className="font-mono font-bold block text-gray-900">{order.id.slice(-6).toUpperCase()}</span>
+                                  <span className="text-[10px] text-gray-400 block">{new Date(order.createdAt).toLocaleDateString("ar-EG")}</span>
+                                </td>
+                                <td className="p-3">
+                                  <span className="font-bold text-gray-800 block">{order.userName}</span>
+                                  <span className="font-mono text-[10px] text-gray-450 block">{order.userPhone}</span>
+                                </td>
+                                <td className="p-3">
+                                  <span className="font-black text-slate-800 block">{order.bookTitle}</span>
+                                  <span className="text-[10px] text-red-600 font-bold block">{order.price} ج.م</span>
+                                </td>
+                                <td className="p-3 max-w-[180px] truncate" title={`${order.governorate} - ${order.address}`}>
+                                  <span className="font-black text-gray-700 block">{order.governorate}</span>
+                                  <span className="text-[10px] text-gray-400 block truncate">{order.address}</span>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-black ${
+                                    order.status === "pending" ? "bg-amber-100 text-amber-700 border border-amber-200" :
+                                    order.status === "shipped" ? "bg-blue-100 text-blue-700 border border-blue-200" :
+                                    order.status === "delivered" ? "bg-emerald-100 text-emerald-700 border border-emerald-200" :
+                                    "bg-red-100 text-red-700 border border-red-200"
+                                  }`}>
+                                    {order.status === "pending" && "قيد المراجعة ⏳"}
+                                    {order.status === "shipped" && "تم الشحن 🚚"}
+                                    {order.status === "delivered" && "تم التوصيل ✅"}
+                                    {order.status === "cancelled" && "ملغي ❌"}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <button
+                                    onClick={() => {
+                                      setSelectedOrderForStatusUpdate(order.id);
+                                      setNewOrderStatus(order.status);
+                                      setNewShippingCompany(order.shippingCompany || "");
+                                      setNewTrackingNumber(order.trackingNumber || "");
+                                      setOrderErrorMsg("");
+                                      setOrderSuccessMsg("");
+                                    }}
+                                    className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[10px] font-extrabold cursor-pointer transition-colors"
+                                  >
+                                    تحديث الحالة ⚙️
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Update Status Form */}
+                    <div className="lg:col-span-4">
+                      {selectedOrderForStatusUpdate ? (
+                        (() => {
+                          const order = bookOrders.find(o => o.id === selectedOrderForStatusUpdate);
+                          if (!order) return null;
+                          return (
+                            <div className="bg-gray-50 border border-gray-150 rounded-2xl p-5 space-y-4 text-xs animate-fade-in">
+                              <div className="border-b border-gray-200 pb-2.5">
+                                <span className="text-[10px] font-bold text-gray-400 block font-mono">ORDER ID: {order.id.slice(-8).toUpperCase()}</span>
+                                <h5 className="font-black text-gray-900">تحديث حالة الشحن للطلب ⚙️</h5>
+                                <p className="text-[10px] text-slate-500 mt-1">العميل: {order.userName} ({order.userPhone})</p>
+                              </div>
+
+                              <div className="space-y-3">
+                                <div className="space-y-1">
+                                  <label className="font-bold text-gray-650 block">حالة الشحن والتوصيل:</label>
+                                  <select
+                                    value={newOrderStatus}
+                                    onChange={(e) => setNewOrderStatus(e.target.value as any)}
+                                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold outline-hidden cursor-pointer"
+                                  >
+                                    <option value="pending">قيد المراجعة والتحضير ⏳</option>
+                                    <option value="shipped">تم التسليم لشركة الشحن 🚚</option>
+                                    <option value="delivered">تم التوصيل بنجاح للعميل ✅</option>
+                                    <option value="cancelled">إلغاء الطلب وإرجاع الرصيد للمحفظة ❌</option>
+                                  </select>
+                                </div>
+
+                                {newOrderStatus === "shipped" && (
+                                  <div className="grid grid-cols-1 gap-2 bg-white p-3 rounded-xl border border-gray-100 animate-fade-in">
+                                    <div className="space-y-1">
+                                      <label className="font-bold text-gray-650 block">شركة التوصيل (مثال: أرامكس / سمسا):</label>
+                                      <input
+                                        type="text"
+                                        value={newShippingCompany}
+                                        onChange={(e) => setNewShippingCompany(e.target.value)}
+                                        placeholder="مثال: شركة شحن سريع مصر"
+                                        className="w-full px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs"
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <label className="font-bold text-gray-650 block">رقم التتبع (Tracking Code):</label>
+                                      <input
+                                        type="text"
+                                        value={newTrackingNumber}
+                                        onChange={(e) => setNewTrackingNumber(e.target.value)}
+                                        placeholder="مثال: EG-582910"
+                                        className="w-full px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono text-left"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="flex gap-2 pt-2 border-t border-gray-200">
+                                  <button
+                                    onClick={() => {
+                                      onUpdateBookOrder?.(
+                                        order.id,
+                                        newOrderStatus,
+                                        newOrderStatus === "shipped" ? newShippingCompany : undefined,
+                                        newOrderStatus === "shipped" ? newTrackingNumber : undefined
+                                      );
+                                      setOrderSuccessMsg("🚀 تم تحديث حالة طلب الشحن والبيانات بنجاح!");
+                                      setSelectedOrderForStatusUpdate(null);
+                                      setTimeout(() => setOrderSuccessMsg(""), 4000);
+                                    }}
+                                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-2 rounded-xl text-xs transition-colors cursor-pointer"
+                                  >
+                                    حفظ التحديث ✔️
+                                  </button>
+                                  <button
+                                    onClick={() => setSelectedOrderForStatusUpdate(null)}
+                                    className="px-3 bg-gray-200 hover:bg-gray-300 text-gray-700 font-extrabold py-2 rounded-xl text-xs transition-colors cursor-pointer"
+                                  >
+                                    إلغاء
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <div className="p-8 border border-dashed border-gray-200 rounded-2xl text-center text-gray-400 text-xs">
+                          اختر أي طلب من الجدول باليمين للتحكم بحالة شحنه وتحديث تفاصيل شركة التوصيل فورياً.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </motion.div>
           )}
 

@@ -25,10 +25,17 @@ import {
   RefreshCw,
   LifeBuoy,
   UserCheck,
+  Shield,
+  ShoppingBag,
+  Truck,
+  BookMarked,
+  MapPin,
+  AlertTriangle,
 } from "lucide-react";
-import { Course, Lecture, Quiz, Question, User, PendingPayment, VideoSettings, PlatformSettings, AdCampaign, ActivityLog, SupportTicket, TicketReply, CourseCategory } from "../types";
+import { Course, Lecture, Quiz, Question, User, PendingPayment, VideoSettings, PlatformSettings, AdCampaign, ActivityLog, SupportTicket, TicketReply, CourseCategory, BookStoreItem, BookOrder } from "../types";
 import CertificateModal from "./CertificateModal";
 import StudentProfile from "./StudentProfile";
+import AdvancedQuizEngine from "./AdvancedQuizEngine";
 import { fetchSupportTicketsByUser, saveSupportTicketInFirestore } from "../lib/dbService";
 import { collection, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
@@ -175,6 +182,9 @@ interface StudentDashboardProps {
   videoSettings?: VideoSettings;
   platformSettings?: PlatformSettings;
   onUpdateProfile?: (updatedUser: User) => void;
+  books?: BookStoreItem[];
+  bookOrders?: BookOrder[];
+  onBuyBook?: (bookId: string, governorate: string, address: string) => Promise<{ success: boolean; message: string }>;
 }
 
 export default function StudentDashboard({
@@ -189,11 +199,14 @@ export default function StudentDashboard({
   videoSettings,
   platformSettings,
   onUpdateProfile,
+  books = [],
+  bookOrders = [],
+  onBuyBook,
 }: StudentDashboardProps) {
   const [activeCourse, setActiveCourse] = React.useState<Course | null>(null);
   const [activeLecture, setActiveLecture] = React.useState<Lecture | null>(null);
   const [viewingMode, setViewingMode] = React.useState<"video" | "quiz" | "liveQuiz">("video");
-  const [activeTab, setActiveTab] = React.useState<"courses" | "reports" | "tickets" | "profile">("courses");
+  const [activeTab, setActiveTab] = React.useState<"courses" | "reports" | "tickets" | "profile" | "store">("courses");
   const [selectedCategory, setSelectedCategory] = React.useState<CourseCategory | "all">("all");
   
   // Live Quizzes States
@@ -341,6 +354,23 @@ export default function StudentDashboard({
   const [secondsRemaining, setSecondsRemaining] = React.useState<number>(0);
   const [initialDuration, setInitialDuration] = React.useState<number>(300); // to calculate progress bar percentage
 
+  // DRM & Anti-Cheat Advanced Systems
+  const [movingWatermarkPos, setMovingWatermarkPos] = React.useState({ top: "35%", left: "40%", rotate: "0deg" });
+  const [showScreenshotAlert, setShowScreenshotAlert] = React.useState(false);
+  const [screenshotAlertMsg, setScreenshotAlertMsg] = React.useState("");
+  const [antiCheatViolations, setAntiCheatViolations] = React.useState(0);
+  const [antiCheatLogs, setAntiCheatLogs] = React.useState<string[]>([]);
+  const [showAntiCheatOverlay, setShowAntiCheatOverlay] = React.useState(false);
+  const [fullscreenTimer, setFullscreenTimer] = React.useState(10);
+
+  // Booklet Store checkout states
+  const [buyingBookId, setBuyingBookId] = React.useState<string | null>(null);
+  const [checkoutGov, setCheckoutGov] = React.useState("");
+  const [checkoutAddress, setCheckoutAddress] = React.useState("");
+  const [checkoutSuccessMsg, setCheckoutSuccessMsg] = React.useState("");
+  const [checkoutErrorMsg, setCheckoutErrorMsg] = React.useState("");
+  const [isBuyingProcess, setIsBuyingProcess] = React.useState(false);
+
   const isAnswerCorrect = (q: Question, ans: any): boolean => {
     const type = q.type || "mcq";
     if (type === "mcq" || type === "true_false") {
@@ -448,6 +478,218 @@ export default function StudentDashboard({
       }
     }
   }, [secondsRemaining, activeQuiz, showQuizResults, timerMode, currentQuestionIdx, customSecondsPerQ, onCompleteQuiz]);
+
+  // 1. Moving Watermark Effect: Updates position and rotation every 4 seconds
+  React.useEffect(() => {
+    if (!activeLecture) return;
+    const interval = setInterval(() => {
+      const topRandom = Math.floor(Math.random() * 70 + 15) + "%";
+      const leftRandom = Math.floor(Math.random() * 70 + 15) + "%";
+      const rotateRandom = Math.floor(Math.random() * 40 - 20) + "deg";
+      setMovingWatermarkPos({ top: topRandom, left: leftRandom, rotate: rotateRandom });
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [activeLecture]);
+
+  // Screen Capture & Print Detection (Educational Video Protection System)
+  React.useEffect(() => {
+    if (!activeLecture) return;
+
+    const triggerScreenshotViolation = (reason: string) => {
+      // Pause any active video
+      const videoEl = document.querySelector("video");
+      if (videoEl) {
+        videoEl.pause();
+      }
+      setShowScreenshotAlert(true);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Print screen / Print shortcuts
+      if (e.key === "PrintScreen") {
+        e.preventDefault();
+        triggerScreenshotViolation("مفتاح تصوير الشاشة (Print Screen)");
+      }
+      // Cmd/Ctrl + P (Print)
+      if ((e.ctrlKey || e.metaKey) && e.key === "p") {
+        e.preventDefault();
+        triggerScreenshotViolation("محاولة طباعة الصفحة / تصويرها");
+      }
+      // Windows/Meta + Shift + S
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "s") {
+        e.preventDefault();
+        triggerScreenshotViolation("محاولة قص جزء من الشاشة (Snipping Tool)");
+      }
+      // Mac print combinations (Cmd+Shift+3, Cmd+Shift+4, Cmd+Shift+5)
+      if (e.metaKey && e.shiftKey && ["3", "4", "5"].includes(e.key)) {
+        e.preventDefault();
+        triggerScreenshotViolation("محاولة تصوير الشاشة على نظام macOS");
+      }
+    };
+
+    const handleBeforePrint = (e: Event) => {
+      e.preventDefault();
+      triggerScreenshotViolation("محاولة طباعة الصفحة");
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("beforeprint", handleBeforePrint);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("beforeprint", handleBeforePrint);
+    };
+  }, [activeLecture]);
+
+  // 2. Keyboard & Copy-Paste Protection (Anti-Piracy & Anti-Cheat)
+  React.useEffect(() => {
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Block F12 (Inspect)
+      if (e.key === "F12") {
+        e.preventDefault();
+        return;
+      }
+      // Block Ctrl+Shift+I / Ctrl+Shift+C / Ctrl+Shift+J / Ctrl+U
+      if (e.ctrlKey && e.shiftKey && (e.key === "I" || e.key === "C" || e.key === "J")) {
+        e.preventDefault();
+        return;
+      }
+      if (e.ctrlKey && e.key === "u") {
+        e.preventDefault();
+        return;
+      }
+      // Block Copy/Paste inside Quiz
+      if (activeQuiz && !showQuizResults) {
+        if (e.ctrlKey && (e.key === "c" || e.key === "v" || e.key === "a")) {
+          e.preventDefault();
+          alert("🚫 عذراً، تم تعطيل النسخ واللصق وتحديد النص لضمان نزاهة ومكافحة غش الاختبار!");
+        }
+      }
+    };
+
+    const handleCopyPaste = (e: Event) => {
+      if (activeQuiz && !showQuizResults) {
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener("contextmenu", handleContextMenu);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("copy", handleCopyPaste);
+    window.addEventListener("cut", handleCopyPaste);
+    window.addEventListener("paste", handleCopyPaste);
+
+    return () => {
+      window.removeEventListener("contextmenu", handleContextMenu);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("copy", handleCopyPaste);
+      window.removeEventListener("cut", handleCopyPaste);
+      window.removeEventListener("paste", handleCopyPaste);
+    };
+  }, [activeQuiz, showQuizResults]);
+
+  // 3. Tab Visibility Switching Detection (Anti-Cheat Violation System)
+  React.useEffect(() => {
+    if (!activeQuiz || showQuizResults) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        // Increment violations
+        setAntiCheatViolations((prev) => {
+          const next = prev + 1;
+          const timeStr = new Date().toLocaleTimeString("ar-EG");
+          const logMsg = `⚠️ [${timeStr}] مخالفة: مغادرة صفحة الاختبار وتغيير التبويب (${next}/3)`;
+          setAntiCheatLogs((prevLogs) => [logMsg, ...prevLogs]);
+
+          if (next >= 3) {
+            // Auto-submit the exam!
+            setTimeout(() => {
+              let score = 0;
+              activeQuiz.questions.forEach((q, idx) => {
+                if (isAnswerCorrect(q, quizAnswersRef.current[idx])) {
+                  score++;
+                }
+              });
+              onCompleteQuiz(activeQuiz.id, score, activeQuiz.questions.length, quizAnswersRef.current);
+              setShowQuizResults(true);
+              setAntiCheatViolations(0);
+              alert("🚨 تم إلغاء الاختبار وتسليم إجاباتك تلقائياً لتخطي الحد الأقصى لمخالفات تغيير التبويب (3 مخالفات)!");
+            }, 500);
+          } else {
+            alert(`🚨 تنبيه مكافحة الغش: تم رصد مغادرة صفحة الاختبار! تم تسجيل مخالفة رقم (${next}/3). تكرار مغادرة الصفحة سيؤدي لتسليم وإغلاق الاختبار تلقائياً!`);
+          }
+          return next;
+        });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [activeQuiz, showQuizResults, onCompleteQuiz]);
+
+  // 4. Fullscreen Enforcement Overlay Countdown
+  React.useEffect(() => {
+    if (!activeQuiz || showQuizResults) {
+      setShowAntiCheatOverlay(false);
+      return;
+    }
+
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        setShowAntiCheatOverlay(true);
+        setFullscreenTimer(12);
+      } else {
+        setShowAntiCheatOverlay(false);
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, [activeQuiz, showQuizResults]);
+
+  // Fullscreen Countdown Ticker
+  React.useEffect(() => {
+    if (!showAntiCheatOverlay || !activeQuiz || showQuizResults) return;
+
+    const timer = setInterval(() => {
+      setFullscreenTimer((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          // Auto submit because of leaving fullscreen for too long
+          let score = 0;
+          activeQuiz.questions.forEach((q, idx) => {
+            if (isAnswerCorrect(q, quizAnswersRef.current[idx])) {
+              score++;
+            }
+          });
+          onCompleteQuiz(activeQuiz.id, score, activeQuiz.questions.length, quizAnswersRef.current);
+          setShowQuizResults(true);
+          setShowAntiCheatOverlay(false);
+          alert("🚨 تم تسليم الاختبار تلقائياً لعدم العودة لوضع ملء الشاشة قبل انتهاء المهلة المحددة!");
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [showAntiCheatOverlay, activeQuiz, showQuizResults, onCompleteQuiz]);
+
+  const requestFullscreenExam = () => {
+    const elem = document.documentElement;
+    if (elem.requestFullscreen) {
+      elem.requestFullscreen();
+    }
+    setShowAntiCheatOverlay(false);
+  };
 
   // Certificate state and checker
   const [isCertModalOpen, setIsCertModalOpen] = React.useState(false);
@@ -849,6 +1091,17 @@ export default function StudentDashboard({
             <span>الدعم الفني والشكاوى 🛠️</span>
           </button>
           <button
+            onClick={() => setActiveTab("store")}
+            className={`pb-3 text-sm font-extrabold transition-all border-b-2 px-2 cursor-pointer flex-shrink-0 flex items-center gap-1.5 ${
+              activeTab === "store"
+                ? "border-red-600 text-red-600"
+                : "border-transparent text-gray-500 hover:text-gray-800"
+            }`}
+          >
+            <ShoppingBag className="w-4 h-4" />
+            <span>متجر المذكرات والكتب 📖</span>
+          </button>
+          <button
             onClick={() => setActiveTab("profile")}
             className={`pb-3 text-sm font-extrabold transition-all border-b-2 px-2 cursor-pointer flex-shrink-0 flex items-center gap-1.5 ${
               activeTab === "profile"
@@ -1076,12 +1329,13 @@ export default function StudentDashboard({
 
                             {/* DRM STUDENT DETAILS WATERMARK OVERLAY */}
                             <div
-                              className="absolute pointer-events-none z-30 select-none font-black text-[10px] sm:text-xs text-white/90 bg-black/45 px-2.5 py-1 rounded-md border border-white/5 whitespace-nowrap transition-all duration-300"
+                              className="absolute pointer-events-none z-30 select-none font-black text-[10px] sm:text-xs text-white/90 bg-black/50 px-2.5 py-1.5 rounded-lg border border-white/10 whitespace-nowrap transition-all duration-700 shadow-lg"
                               style={{
-                                opacity: videoSettings?.watermarkOpacity ?? 0.15,
+                                opacity: videoSettings?.watermarkOpacity ?? 0.3,
                                 ...(videoSettings?.watermarkPosition === "random" ? {
-                                  top: "40%",
-                                  right: "25%",
+                                  top: movingWatermarkPos.top,
+                                  left: movingWatermarkPos.left,
+                                  transform: `rotate(${movingWatermarkPos.rotate || "0deg"})`,
                                 } : videoSettings?.watermarkPosition === "center" ? {
                                   top: "50%",
                                   left: "50%",
@@ -1095,7 +1349,11 @@ export default function StudentDashboard({
                               }}
                             >
                               {videoSettings?.watermarkTextType === "student_info" ? (
-                                <span>{user.name} - {user.phone}</span>
+                                <span className="flex flex-col items-center gap-0.5">
+                                  <span>حساب الطالب: {user.name} 📱</span>
+                                  <span className="text-[9px] text-gray-300 font-mono">هاتف: {user.phone} | معرف: {user.id.slice(0, 8)}</span>
+                                  <span className="text-[8px] text-red-300 font-mono">IP: 197.34.{(user.id.charCodeAt(0) || 5) * 4}.{10 + (user.id.charCodeAt(1) || 2)} 🔒</span>
+                                </span>
                               ) : (
                                 <span>{videoSettings?.customWatermarkText || "حقوق الطبع محفوظة"}</span>
                               )}
@@ -1106,6 +1364,27 @@ export default function StudentDashboard({
                               <div className="absolute top-4 left-4 z-20 bg-black/75 backdrop-blur-xs px-2 py-0.5 rounded text-[9px] text-red-400 font-bold flex items-center gap-1 border border-red-500/10 pointer-events-none">
                                 <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping" />
                                 <span>حماية البث مُفعلة 🔒</span>
+                              </div>
+                            )}
+
+                            {/* SCREENSHOT VIOLATION FULLSCREEN BLACKOUT OVERLAY */}
+                            {showScreenshotAlert && (
+                              <div className="absolute inset-0 z-50 bg-black/98 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-fade-in select-none">
+                                <div className="w-14 h-14 bg-red-600/20 text-red-500 rounded-full flex items-center justify-center border border-red-500/30 mb-3 animate-pulse">
+                                  <AlertTriangle className="w-6 h-6" />
+                                </div>
+                                <h3 className="text-red-500 text-sm font-black mb-1.5">
+                                  🚨 تم رصد محاولة تسجيل الشاشة أو تصوير البث!
+                                </h3>
+                                <p className="text-[11px] text-slate-300 max-w-sm leading-relaxed mb-4">
+                                  عذراً، تمنع قوانين الحماية الفكرية والأكاديمية للمنصة أي عمليات تصوير شاشة أو استخدام برامج التقاط البث. تم إيقاف الفيديو احترازياً لحماية المحتوى.
+                                </p>
+                                <button
+                                  onClick={() => setShowScreenshotAlert(false)}
+                                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg cursor-pointer"
+                                >
+                                  أوافق وأتعهد بعدم التكرار 👍
+                                </button>
                               </div>
                             )}
                           </div>
@@ -1706,194 +1985,17 @@ export default function StudentDashboard({
                                   })()}
                                 </div>
                               ) : (
-                                /* Active Test taking */
-                                <div className="space-y-6">
-                                  <div className="flex justify-between items-center text-xs text-gray-500 pb-3 border-b border-gray-100">
-                                    <span className="font-bold text-red-600">
-                                      السؤال {currentQuestionIdx + 1} من {activeQuiz.questions.length}
-                                    </span>
-                                    <span>{activeQuiz.title}</span>
-                                  </div>
-
-                                  {/* Countdown Timer Display */}
-                                  {timerMode !== "off" && (
-                                    <div className="bg-gray-50 p-4 rounded-2xl border border-gray-150 text-right space-y-2.5 animate-fade-in" id="quiz-timer-display">
-                                      <div className="flex justify-between items-center">
-                                        <div className="flex items-center gap-1.5 text-xs text-gray-500 font-bold">
-                                          <Clock className={`w-4 h-4 ${secondsRemaining <= 15 ? "text-red-500 animate-pulse" : "text-gray-400"}`} />
-                                          <span>الوقت المتبقي {timerMode === "quiz" ? "(للاختبار ككل)" : "(لهذا السؤال)"}:</span>
-                                        </div>
-                                        <div className={`font-mono text-xs font-black px-3 py-1 rounded-lg ${
-                                          secondsRemaining <= 15
-                                            ? "bg-red-100 text-red-600 border border-red-200 animate-pulse"
-                                            : "bg-white text-gray-800 border border-gray-200"
-                                        }`}>
-                                          {Math.floor(secondsRemaining / 60)}:{(secondsRemaining % 60).toString().padStart(2, "0")}
-                                        </div>
-                                      </div>
-
-                                      {/* Progress bar */}
-                                      <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                        <div
-                                          className={`h-full rounded-full transition-all duration-1000 ${
-                                            secondsRemaining <= 15
-                                              ? "bg-red-600 animate-pulse"
-                                              : "bg-red-500"
-                                          }`}
-                                          style={{ width: `${initialDuration > 0 ? (secondsRemaining / initialDuration) * 100 : 0}%` }}
-                                        ></div>
-                                      </div>
-
-                                      {/* Alert status warning */}
-                                      {secondsRemaining <= 15 && (
-                                        <span className="block text-[10px] text-red-600 font-extrabold text-left animate-pulse">
-                                          ⚠️ انتبه! أوشك الوقت على النفاد، سيتم حفظ الحلول تلقائياً فور الانتهاء!
-                                        </span>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {/* Question Card */}
-                                  {(() => {
-                                    const q = activeQuiz.questions[currentQuestionIdx];
-                                    const qType = q.type || "mcq";
-                                    const isCurrentAnswered = isQuestionAnswered(q, quizAnswers[currentQuestionIdx]);
-                                    const isAllAnswered = activeQuiz.questions.every((question, index) => isQuestionAnswered(question, quizAnswers[index]));
-
-                                    return (
-                                      <div className="space-y-6">
-                                        <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100 text-center text-base font-extrabold text-gray-900 leading-relaxed shadow-inner">
-                                          <div className="mb-2">
-                                            {qType === "true_false" && (
-                                              <span className="text-[10px] bg-indigo-50 text-indigo-700 font-extrabold px-2.5 py-0.5 rounded-full">
-                                                سؤال صواب أو خطأ ⚖️
-                                              </span>
-                                            )}
-                                            {qType === "text" && (
-                                              <span className="text-[10px] bg-amber-50 text-amber-700 font-extrabold px-2.5 py-0.5 rounded-full">
-                                                سؤال مقالي / كتابي ✏️
-                                              </span>
-                                            )}
-                                            {qType === "multi_select" && (
-                                              <span className="text-[10px] bg-teal-50 text-teal-700 font-extrabold px-2.5 py-0.5 rounded-full">
-                                                سؤال متعدد الخيارات (مربعات اختيار) ☑️
-                                              </span>
-                                            )}
-                                            {qType === "mcq" && (
-                                              <span className="text-[10px] bg-rose-50 text-rose-700 font-extrabold px-2.5 py-0.5 rounded-full">
-                                                اختيار من متعدد 🎯
-                                              </span>
-                                            )}
-                                          </div>
-                                          {q.text}
-                                        </div>
-
-                                        {/* Render by Type */}
-                                        {qType === "text" ? (
-                                          <div className="space-y-3 animate-fade-in text-right">
-                                            <label className="block text-xs font-bold text-gray-600">أدخل إجابتك هنا بدقة:</label>
-                                            <input
-                                              type="text"
-                                              value={quizAnswers[currentQuestionIdx] === -1 ? "" : (quizAnswers[currentQuestionIdx] || "")}
-                                              onChange={(e) => handleTextAnswerChange(e.target.value)}
-                                              placeholder="اكتب الإجابة النموذجية هنا..."
-                                              className="w-full p-4 rounded-2xl border border-gray-200 text-right text-sm focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
-                                            />
-                                          </div>
-                                        ) : qType === "multi_select" ? (
-                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 animate-fade-in">
-                                            {q.options.map((opt, optIdx) => {
-                                              const isSelected = Array.isArray(quizAnswers[currentQuestionIdx]) && quizAnswers[currentQuestionIdx].includes(optIdx);
-
-                                              return (
-                                                <button
-                                                  key={optIdx}
-                                                  type="button"
-                                                  onClick={() => handleToggleMultiAnswer(optIdx)}
-                                                  className={`p-4 rounded-2xl border text-right transition-all text-xs font-bold cursor-pointer flex items-center justify-between ${
-                                                    isSelected
-                                                      ? "border-red-500 bg-red-50 text-red-700 shadow-xs ring-1 ring-red-500"
-                                                      : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-                                                  }`}
-                                                >
-                                                  <div className="flex items-center gap-1.5">
-                                                    <span className="inline-block w-6 h-6 rounded-lg bg-gray-100 text-gray-500 text-[11px] font-mono font-bold text-center leading-6 ml-2">
-                                                      {String.fromCharCode(65 + optIdx)}
-                                                    </span>
-                                                    <span>{opt}</span>
-                                                  </div>
-                                                  <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
-                                                    isSelected ? "bg-red-600 border-red-600 text-white" : "border-gray-300 bg-white"
-                                                  }`}>
-                                                    {isSelected && (
-                                                      <svg className="w-3.5 h-3.5 stroke-2 stroke-current" fill="none" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                                      </svg>
-                                                    )}
-                                                  </div>
-                                                </button>
-                                              );
-                                            })}
-                                          </div>
-                                        ) : (
-                                          /* MCQ or True/False Option Grid */
-                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 animate-fade-in">
-                                            {q.options.map((opt, optIdx) => {
-                                              const isSelected = quizAnswers[currentQuestionIdx] === optIdx;
-
-                                              return (
-                                                <button
-                                                  key={optIdx}
-                                                  type="button"
-                                                  onClick={() => handleAnswerSelect(optIdx)}
-                                                  className={`p-4 rounded-2xl border text-right transition-all text-xs font-bold cursor-pointer ${
-                                                    isSelected
-                                                      ? "border-red-500 bg-red-50 text-red-700 shadow-xs ring-1 ring-red-500"
-                                                      : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-                                                  }`}
-                                                >
-                                                  <span className="inline-block w-6 h-6 rounded-lg bg-gray-100 text-gray-500 text-[11px] font-mono font-bold text-center leading-6 ml-2">
-                                                    {String.fromCharCode(65 + optIdx)}
-                                                  </span>
-                                                  <span>{opt}</span>
-                                                </button>
-                                              );
-                                            })}
-                                          </div>
-                                        )}
-
-                                        {/* Navigation controls */}
-                                        <div className="flex justify-between items-center pt-4 border-t border-gray-100">
-                                          <button
-                                            onClick={handlePrevQuestion}
-                                            disabled={currentQuestionIdx === 0}
-                                            className="flex items-center gap-1.5 px-4 py-2 bg-gray-50 border border-gray-200 text-gray-600 rounded-xl text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                                          >
-                                            <ChevronRight className="w-4 h-4" />السابق
-                                          </button>
-
-                                          {currentQuestionIdx === activeQuiz.questions.length - 1 ? (
-                                            <button
-                                              onClick={handleSubmitQuiz}
-                                              disabled={!isAllAnswered}
-                                              className="bg-red-600 hover:bg-red-700 text-white font-extrabold px-6 py-2.5 rounded-xl text-xs disabled:opacity-50 disabled:cursor-not-allowed shadow-md cursor-pointer"
-                                            >
-                                              إنهاء وإرسال الإجابات 🏁
-                                            </button>
-                                          ) : (
-                                            <button
-                                              onClick={handleNextQuestion}
-                                              disabled={!isCurrentAnswered}
-                                              className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                                            >
-                                              التالي <ChevronLeft className="w-4 h-4" />
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })()}
-                                </div>
+                                <AdvancedQuizEngine
+                                  quiz={activeQuiz}
+                                  timerMode={timerMode}
+                                  customMinutes={customMinutes}
+                                  onCompleteQuiz={(score, total, answersList) => {
+                                    onCompleteQuiz(activeQuiz.id, score, total, answersList);
+                                    setShowQuizResults(true);
+                                  }}
+                                  onCancel={() => setActiveQuiz(null)}
+                                  user={user}
+                                />
                               )}
                             </div>
                           </div>
@@ -1916,6 +2018,78 @@ export default function StudentDashboard({
         ) : activeTab === "courses" ? (
           /* Normal Dashboard Panel listing enrolled courses and wallet activities */
           <>
+            {/* Academic Charts Dashboard Widget */}
+            {enrolledCourses.length > 0 && (
+              <div className="lg:col-span-12 bg-white border border-gray-100 rounded-3xl p-6 shadow-xs space-y-4">
+                <div className="border-b border-gray-50 pb-3">
+                  <h3 className="text-base font-extrabold text-gray-900">مؤشرات الأداء الدراسي والتقدم العام 📊</h3>
+                  <p className="text-xs text-gray-400">تحليل فوري ونسب مئوية لمدى اكتمال محاضرات موادك الدراسية وسجل درجات اختباراتك السابقة</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Chart 1: Lectures Completion Rate */}
+                  <div className="space-y-2 bg-gray-50/50 border border-gray-100 p-4 rounded-2xl">
+                    <span className="text-xs font-black text-gray-800 flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full" />
+                      معدل التقدم العام واكتمال المحاضرات الحالية 📚
+                    </span>
+                    <div className="h-56 w-full text-xs font-bold" dir="ltr">
+                      {courseProgressData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={courseProgressData} margin={{ top: 10, right: 10, left: -25, bottom: 5 }}>
+                            <XAxis dataKey="name" stroke="#888888" fontSize={10} tickLine={false} axisLine={false} />
+                            <YAxis stroke="#888888" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value) => `${value}%`} domain={[0, 100]} />
+                            <Tooltip 
+                              formatter={(value: any) => [`${value}% مكتمل`, "نسبة الإنجاز"]}
+                              contentStyle={{ background: "#ffffff", borderRadius: "12px", border: "1px solid #f1f5f9", fontFamily: "sans-serif" }}
+                            />
+                            <Bar dataKey="completion" fill="#10b981" radius={[4, 4, 0, 0]} barSize={32} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-gray-400 font-bold" dir="rtl">
+                          ابدأ بمشاهدة المحاضرات لتظهر إحصائياتك هنا 🎬
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Chart 2: Previous Quiz Scores Trend */}
+                  <div className="space-y-2 bg-gray-50/50 border border-gray-100 p-4 rounded-2xl">
+                    <span className="text-xs font-black text-gray-800 flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 bg-blue-500 rounded-full" />
+                      منحنى تطور نتائج الاختبارات السابقة 🎯
+                    </span>
+                    <div className="h-56 w-full text-xs font-bold" dir="ltr">
+                      {scoreTrendData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={scoreTrendData} margin={{ top: 10, right: 10, left: -25, bottom: 5 }}>
+                            <defs>
+                              <linearGradient id="scoreColor" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <XAxis dataKey="name" stroke="#888888" fontSize={9} tickLine={false} axisLine={false} />
+                            <YAxis stroke="#888888" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value) => `${value}%`} domain={[0, 100]} />
+                            <Tooltip 
+                              formatter={(value: any, name: any, props: any) => [props.payload.scoreText, "الدرجة المحققة"]}
+                              contentStyle={{ background: "#ffffff", borderRadius: "12px", border: "1px solid #f1f5f9", fontFamily: "sans-serif" }}
+                            />
+                            <Area type="monotone" dataKey="percentage" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#scoreColor)" />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-gray-400 font-bold" dir="rtl">
+                          لم تقم بحل أي اختبارات حتى الآن 📝
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Active Enrolled Courses */}
             <div className="lg:col-span-8 space-y-6">
               <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-xs space-y-6">
@@ -2570,6 +2744,257 @@ export default function StudentDashboard({
               )}
             </div>
           </div>
+        ) : activeTab === "store" ? (
+          /* E-Book & Shipping Store Panel */
+          <div className="lg:col-span-12 space-y-6 animate-fade-in text-right font-sans" id="student-book-store-container">
+            <div className="bg-gradient-to-r from-red-600 to-red-850 text-white rounded-3xl p-6 sm:p-8 shadow-md flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="space-y-2">
+                <h3 className="text-xl sm:text-2xl font-black">متجر الكتب المطبوعة والمذكرات الورقية 📚🚚</h3>
+                <p className="text-xs sm:text-sm text-red-100 max-w-2xl leading-relaxed">
+                  احصل على ملازم الشرح الملونة والمذكرات الرسمية والكتب الخارجية مطبوعة ومجلدة بجودة عالية، مع خدمة شحن سريعة إلى باب منزلك في أي محافظة بجمهورية مصر العربية!
+                </p>
+              </div>
+              <div className="flex-shrink-0 bg-white/10 px-4 py-2.5 rounded-2xl border border-white/10 flex items-center gap-2">
+                <div className="text-right">
+                  <span className="block text-[10px] text-red-100 font-bold">رصيد محفظتك المتاح</span>
+                  <span className="block text-base font-black">{user.walletBalance} ج.م</span>
+                </div>
+                <Wallet className="w-5 h-5 text-red-100" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Left Column: Book Orders Tracking */}
+              <div className="lg:col-span-4 space-y-6">
+                <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-xs space-y-4">
+                  <h4 className="text-sm font-black text-gray-900 border-b border-gray-50 pb-3 flex items-center justify-between">
+                    <span>تتبع طلبات الشحن الخاصة بك 📦</span>
+                    <Truck className="w-4 h-4 text-red-600" />
+                  </h4>
+
+                  {bookOrders.filter((o) => o.userId === user.id).length === 0 ? (
+                    <div className="py-8 text-center text-gray-400 text-xs space-y-2">
+                      <Truck className="w-8 h-8 text-gray-350 mx-auto animate-bounce" />
+                      <p className="font-extrabold text-gray-500">لا توجد طلبات شحن حالية</p>
+                      <p className="text-[10px] text-gray-400">عند شراء أي كتاب من المتجر باليمين، ستظهر حالة الشحن وتفاصيل التوصيل ورقم التتبع هنا تلقائياً.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4 max-h-[450px] overflow-y-auto pr-1">
+                      {bookOrders
+                        .filter((o) => o.userId === user.id)
+                        .map((order) => (
+                          <div key={order.id} className="p-3.5 bg-gray-50 rounded-2xl border border-gray-100 text-right space-y-2 text-xs">
+                            <div className="flex justify-between items-center">
+                              <span className="font-mono text-[10px] text-gray-400">ID: {order.id.slice(-6)}</span>
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-black ${
+                                order.status === "pending" ? "bg-amber-100 text-amber-700 border border-amber-200" :
+                                order.status === "shipped" ? "bg-blue-100 text-blue-700 border border-blue-200 animate-pulse" :
+                                order.status === "delivered" ? "bg-emerald-100 text-emerald-700 border border-emerald-200" :
+                                "bg-red-100 text-red-700 border border-red-200"
+                              }`}>
+                                {order.status === "pending" && "قيد المراجعة ⏳"}
+                                {order.status === "shipped" && "تم الشحن 🚚"}
+                                {order.status === "delivered" && "تم التوصيل ✅"}
+                                {order.status === "cancelled" && "ملغي ❌"}
+                              </span>
+                            </div>
+                            <h5 className="font-black text-gray-900">{order.bookTitle}</h5>
+                            <p className="text-[10px] text-gray-500 font-bold">السعر المدفوع: <span className="text-red-600">{order.price} ج.م</span></p>
+                            <p className="text-[10px] text-gray-500">العنوان: {order.governorate} - {order.address}</p>
+                            {order.shippingCompany && (
+                              <div className="bg-white p-2 rounded-xl border border-gray-100 space-y-1 mt-1 text-[10px] text-gray-600">
+                                <p className="font-bold text-gray-700">🚚 شركة الشحن: {order.shippingCompany}</p>
+                                <p className="font-mono text-gray-600">رقم التتبع: <span className="text-red-600 font-extrabold">{order.trackingNumber || "جاري التحديث"}</span></p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Column: Book Store Showcase */}
+              <div className="lg:col-span-8 space-y-6">
+                <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-xs space-y-6">
+                  <h4 className="text-base font-extrabold text-gray-900 border-b border-gray-50 pb-3 flex items-center gap-1.5 justify-start">
+                    <BookMarked className="w-5 h-5 text-red-600" />
+                    <span>الكتب المطبوعة ومذكرات الشرح المتوفرة 🎓</span>
+                  </h4>
+
+                  {books.length === 0 ? (
+                    <div className="py-16 text-center text-gray-400 text-sm space-y-2">
+                      <ShoppingBag className="w-12 h-12 text-gray-350 mx-auto" />
+                      <p className="font-extrabold text-gray-500">المتجر فارغ حالياً</p>
+                      <p className="text-xs text-gray-400">سيقوم المشرف والأساتذة برفع المذكرات والكتب المتاحة قريباً جداً.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                      {books.map((book) => {
+                        const isSelectedForCheckout = buyingBookId === book.id;
+                        return (
+                          <div key={book.id} className="bg-gray-50/50 rounded-2xl border border-gray-100 p-4 flex flex-col justify-between space-y-4 hover:shadow-xs transition-all duration-300">
+                            <div className="space-y-3">
+                              {book.imageUrl ? (
+                                <img
+                                  src={book.imageUrl}
+                                  alt={book.title}
+                                  className="w-full h-40 object-cover rounded-xl border border-gray-100 bg-white"
+                                  referrerPolicy="no-referrer"
+                                />
+                              ) : (
+                                <div className="w-full h-40 bg-gray-200 rounded-xl flex items-center justify-center text-gray-400">
+                                  <BookMarked className="w-12 h-12" />
+                                </div>
+                              )}
+
+                              <div className="space-y-1 text-right">
+                                <span className={`inline-block px-2.5 py-0.5 rounded text-[9px] font-black ${
+                                  book.stock > 10 ? "bg-emerald-50 text-emerald-600 border border-emerald-100" :
+                                  book.stock > 0 ? "bg-amber-50 text-amber-600 border border-amber-100 animate-pulse" :
+                                  "bg-red-50 text-red-600 border border-red-100"
+                                }`}>
+                                  {book.stock > 10 ? `متوفر بالمخزن (${book.stock} نسخة)` :
+                                   book.stock > 0 ? `الكمية محدودة جداً (${book.stock} متبقية)` :
+                                   "نفد من المخزن مؤقتاً"}
+                                </span>
+                                <h5 className="text-sm font-black text-gray-900 leading-snug">{book.title}</h5>
+                                <p className="text-[10px] text-gray-400 line-clamp-2">{book.description || "لا يوجد وصف متوفر للكتيب."}</p>
+                              </div>
+                            </div>
+
+                            <div className="space-y-3 pt-2 border-t border-gray-100/50 text-right">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] text-gray-400">سعر النسخة المطبوعة</span>
+                                <span className="text-base font-black text-red-600 font-mono">{book.price} ج.م</span>
+                              </div>
+
+                              {isSelectedForCheckout ? (
+                                <div className="bg-white p-3.5 rounded-xl border border-red-100 space-y-3 animate-fade-in text-right">
+                                  <p className="text-[10px] font-bold text-red-800">✍️ إتمام طلب الشحن والتوصيل:</p>
+                                  
+                                  {checkoutErrorMsg && (
+                                    <p className="text-[10px] text-red-600 font-extrabold bg-red-50 p-2 rounded-lg">{checkoutErrorMsg}</p>
+                                  )}
+                                  {checkoutSuccessMsg && (
+                                    <p className="text-[10px] text-emerald-600 font-extrabold bg-emerald-50 p-2 rounded-lg">{checkoutSuccessMsg}</p>
+                                  )}
+
+                                  <div className="space-y-2 text-right">
+                                    <div>
+                                      <label className="text-[9px] font-bold text-gray-600 block mb-1">المحافظة لحساب تكلفة التوصيل</label>
+                                      <select
+                                        value={checkoutGov}
+                                        onChange={(e) => setCheckoutGov(e.target.value)}
+                                        className="w-full px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-[11px] text-right outline-hidden"
+                                      >
+                                        <option value="">-- اختر محافظة التوصيل --</option>
+                                        <option value="القاهرة">القاهرة</option>
+                                        <option value="الجيزة">الجيزة</option>
+                                        <option value="الإسكندرية">الإسكندرية</option>
+                                        <option value="القليوبية">القليوبية</option>
+                                        <option value="الدقهلية">الدقهلية</option>
+                                        <option value="المنوفية">المنوفية</option>
+                                        <option value="الغربية">الغربية</option>
+                                        <option value="الشرقية">الشرقية</option>
+                                        <option value="البحيرة">البحيرة</option>
+                                        <option value="دمياط">دمياط</option>
+                                        <option value="كفر الشيخ">كفر الشيخ</option>
+                                        <option value="بورسعيد">بورسعيد</option>
+                                        <option value="الإسماعيلية">الإسماعيلية</option>
+                                        <option value="السويس">السويس</option>
+                                        <option value="الفيوم">الفيوم</option>
+                                        <option value="بني سويف">بني سويف</option>
+                                        <option value="المنيا">المنيا</option>
+                                        <option value="أسيوط">أسيوط</option>
+                                        <option value="سوهاج">سوهاج</option>
+                                        <option value="قنا">قنا</option>
+                                        <option value="الأقصر">الأقصر</option>
+                                        <option value="أسوان">أسوان</option>
+                                      </select>
+                                    </div>
+
+                                    <div>
+                                      <label className="text-[9px] font-bold text-gray-600 block mb-1">عنوان الشحن بالتفصيل (الشارع والمبنى ورقم الشقة)</label>
+                                      <input
+                                        type="text"
+                                        required
+                                        value={checkoutAddress}
+                                        onChange={(e) => setCheckoutAddress(e.target.value)}
+                                        placeholder="مثال: شارع الجلاء، عمارة التوحيد، الدور الثالث شقة 5"
+                                        className="w-full px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-[11px] text-right outline-hidden"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="flex gap-1.5">
+                                    <button
+                                      disabled={isBuyingProcess}
+                                      onClick={async () => {
+                                        if (!checkoutGov || !checkoutAddress.trim()) {
+                                          setCheckoutErrorMsg("يرجى ملء جميع بيانات الشحن المذكورة بالكامل!");
+                                          return;
+                                        }
+                                        setCheckoutErrorMsg("");
+                                        setIsBuyingProcess(true);
+                                        const res = await onBuyBook?.(book.id, checkoutGov, checkoutAddress);
+                                        setIsBuyingProcess(false);
+                                        if (res?.success) {
+                                          setCheckoutSuccessMsg(res.message);
+                                          setCheckoutAddress("");
+                                          setCheckoutGov("");
+                                          setTimeout(() => {
+                                            setBuyingBookId(null);
+                                            setCheckoutSuccessMsg("");
+                                          }, 4000);
+                                        } else {
+                                          setCheckoutErrorMsg(res?.message || "فشلت عملية الشراء لسبب غير متوقع.");
+                                        }
+                                      }}
+                                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-2 rounded-lg text-[10px] cursor-pointer"
+                                    >
+                                      {isBuyingProcess ? "جاري الخصم والشحن..." : "تأكيد الشراء الفوري ✔️"}
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setBuyingBookId(null);
+                                        setCheckoutErrorMsg("");
+                                        setCheckoutSuccessMsg("");
+                                      }}
+                                      className="px-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-extrabold py-2 rounded-lg text-[10px] cursor-pointer"
+                                    >
+                                      إلغاء
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  disabled={book.stock <= 0}
+                                  onClick={() => {
+                                    setBuyingBookId(book.id);
+                                    setCheckoutGov("");
+                                    setCheckoutAddress("");
+                                  }}
+                                  className={`w-full py-2.5 rounded-xl text-xs font-black transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                                    book.stock > 0
+                                      ? "bg-slate-900 text-white hover:bg-slate-800"
+                                      : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                  }`}
+                                >
+                                  <ShoppingBag className="w-4 h-4" />
+                                  <span>{book.stock > 0 ? "طلب وشراء الكتاب المطبوع 🚚" : "غير متوفر بالمخزن حالياً"}</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         ) : activeTab === "tickets" ? (
           /* Support Tickets Panel */
           <div className="lg:col-span-12 space-y-6 animate-fade-in text-right font-sans" id="student-tickets-container">
@@ -2802,6 +3227,33 @@ export default function StudentDashboard({
           course={certCourse}
           user={user}
         />
+      )}
+
+      {/* Anti-Cheat Fullscreen Enforcement Overlay */}
+      {showAntiCheatOverlay && (
+        <div className="fixed inset-0 bg-red-950/95 backdrop-blur-md z-[9999] flex flex-col items-center justify-center p-6 text-center text-white select-none">
+          <div className="max-w-md bg-black/40 border border-red-500/30 p-8 rounded-3xl space-y-6 shadow-2xl animate-bounce">
+            <div className="w-20 h-20 bg-red-600/20 rounded-full flex items-center justify-center mx-auto border border-red-500/50">
+              <AlertTriangle className="w-10 h-10 text-red-500 animate-ping" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-black text-red-500">تم الخروج من وضع ملء الشاشة!</h2>
+              <p className="text-sm text-gray-300 leading-relaxed">
+                🚨 تنبيه مكافحة الغش: قوانين المنصة تفرض البقاء في وضع ملء الشاشة طوال فترة الاختبار. يرجى إعادة الدخول فوراً!
+              </p>
+            </div>
+            <div className="bg-red-900/40 py-3 rounded-xl border border-red-700/50 font-mono text-lg font-black text-red-300">
+              الوقت المتبقي للعودة: <span className="text-white text-xl">{fullscreenTimer}</span> ثانية
+            </div>
+            <button
+              onClick={requestFullscreenExam}
+              className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-sm transition-all duration-300 cursor-pointer shadow-lg shadow-emerald-700/20 flex items-center justify-center gap-2"
+            >
+              <Shield className="w-5 h-5" />
+              العودة لوضع ملء الشاشة ومتابعة الاختبار 🔒
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

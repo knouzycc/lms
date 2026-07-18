@@ -212,7 +212,7 @@ export default function LandingPage({
               className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-50 text-red-600 text-sm font-bold border border-red-100"
             >
               <GraduationCap className="w-4 h-4" />
-              <span>أقوى منصة تعليمية للمرحلة الثانوية 🏆</span>
+              <span>أقوى منصة تعليمية 🏆</span>
             </motion.div>
 
             <motion.h1

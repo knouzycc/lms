@@ -14,7 +14,7 @@ import StudentDashboard from "./components/StudentDashboard";
 import AdminDashboard from "./components/AdminDashboard";
 import CourseDetailModal from "./components/CourseDetailModal";
 import { INITIAL_COURSES } from "./data";
-import { Course, User as UserType, PendingPayment, GradeLevel, CourseCategory, Teacher, ChargeCode, VideoSettings, PlatformSettings, AdCampaign, AppNotification, ActivityLog, Quiz } from "./types";
+import { Course, User as UserType, PendingPayment, GradeLevel, CourseCategory, Teacher, ChargeCode, VideoSettings, PlatformSettings, AdCampaign, AppNotification, ActivityLog, Quiz, BookStoreItem, BookOrder } from "./types";
 import {
   fetchCourses,
   saveCourseInFirestore,
@@ -34,7 +34,15 @@ import {
   fetchActivityLogs,
   saveActivityLogInFirestore,
   fetchSettings,
-  saveSettingsInFirestore
+  saveSettingsInFirestore,
+  fetchTeachers,
+  saveTeacherInFirestore,
+  deleteTeacherFromFirestore,
+  fetchBookStoreItems,
+  saveBookStoreItemInFirestore,
+  deleteBookStoreItemFromFirestore,
+  fetchBookOrders,
+  saveBookOrderInFirestore
 } from "./lib/dbService";
 
 // Standard seed data for demonstration/mock persistence
@@ -78,12 +86,10 @@ export default function App() {
   const [user, setUser] = React.useState<UserType | null>(null);
   const [pendingPayments, setPendingPayments] = React.useState<PendingPayment[]>([]);
   const [studentsList, setStudentsList] = React.useState<{ name: string; phone: string; enrolledCount: number; balance: number }[]>([]);
-  const [teachersList, setTeachersList] = React.useState<Teacher[]>([
-    { id: "teacher-1", name: "الأستاذ ياسر أبوستيت", subject: "الرياضيات", phone: "01111111111", email: "yasser@academy.com", courseCount: 4 },
-    { id: "teacher-2", name: "الأستاذ محمد عبد المعبود", subject: "الفيزياء", phone: "01222222222", email: "abdelmabod@academy.com", courseCount: 1 },
-    { id: "teacher-3", name: "الأستاذ حسام خليل", subject: "الكيمياء", phone: "01000000000", email: "hossam@academy.com", courseCount: 0 }
-  ]);
+  const [teachersList, setTeachersList] = React.useState<Teacher[]>([]);
   const [chargeCodes, setChargeCodes] = React.useState<ChargeCode[]>([]);
+  const [books, setBooks] = React.useState<BookStoreItem[]>([]);
+  const [bookOrders, setBookOrders] = React.useState<BookOrder[]>([]);
   const [videoSettings, setVideoSettings] = React.useState<VideoSettings>({
     watermarkTextType: "student_info",
     customWatermarkText: "حقوق الطبع محفوظة",
@@ -141,7 +147,10 @@ export default function App() {
           dbLogs,
           dbNotifs,
           dbSettings,
-          dbUsers
+          dbUsers,
+          dbTeachers,
+          dbBooks,
+          dbOrders
         ] = await Promise.all([
           fetchCourses(),
           fetchPendingPayments(),
@@ -149,7 +158,10 @@ export default function App() {
           fetchActivityLogs(),
           fetchNotifications(),
           fetchSettings(),
-          fetchAllUsers()
+          fetchAllUsers(),
+          fetchTeachers(),
+          fetchBookStoreItems(),
+          fetchBookOrders()
         ]);
 
         setCourses(dbCourses);
@@ -159,6 +171,9 @@ export default function App() {
         setNotifications(dbNotifs);
         setVideoSettings(dbSettings.video);
         setPlatformSettings(dbSettings.platform);
+        setTeachersList(dbTeachers);
+        setBooks(dbBooks);
+        setBookOrders(dbOrders);
 
         const students = dbUsers.filter((u) => u.role === "student").map((u) => ({
           name: u.name,
@@ -253,7 +268,7 @@ export default function App() {
 
   const addActivityLog = async (
     userId: string,
-    actionType: "watched_video" | "solved_quiz" | "recharged_balance" | "course_enrollment",
+    actionType: "watched_video" | "solved_quiz" | "recharged_balance" | "course_enrollment" | "book_order",
     title: string,
     details: string
   ) => {
@@ -680,6 +695,127 @@ export default function App() {
     );
   };
 
+  // ================= BOOKS & SHIPPING SERVICES =================
+  const handleBuyBook = async (bookId: string, governorate: string, address: string): Promise<{ success: boolean; message: string }> => {
+    if (!user) {
+      return { success: false, message: "يرجى تسجيل الدخول أولاً لإتمام عملية الشراء!" };
+    }
+    const book = books.find((b) => b.id === bookId);
+    if (!book) {
+      return { success: false, message: "هذا الكتاب غير متوفر بالمتجر حالياً!" };
+    }
+    if (book.stock <= 0) {
+      return { success: false, message: "عذراً، هذه المذكرة نفدت من المخزن حالياً!" };
+    }
+    if (user.walletBalance < book.price) {
+      return { success: false, message: `رصيد محفظتك (${user.walletBalance} ج.م) غير كافٍ لشراء هذا الكتاب بقيمة (${book.price} ج.م)! يرجى شحن محفظتك أولاً.` };
+    }
+
+    try {
+      // 1. Deduct from user wallet
+      const updatedUser: UserType = {
+        ...user,
+        walletBalance: user.walletBalance - book.price
+      };
+      await saveUserInFirestore(updatedUser);
+      setUser(updatedUser);
+
+      // Update student list balance
+      setStudentsList((prev) =>
+        prev.map((s) => (s.phone === user.phone ? { ...s, balance: updatedUser.walletBalance } : s))
+      );
+
+      // 2. Decrement book stock
+      const updatedBook: BookStoreItem = {
+        ...book,
+        stock: book.stock - 1
+      };
+      await saveBookStoreItemInFirestore(updatedBook);
+      setBooks((prev) => prev.map((b) => (b.id === bookId ? updatedBook : b)));
+
+      // 3. Create shipping order
+      const newOrder: BookOrder = {
+        id: "order-" + Date.now(),
+        userId: user.id,
+        userName: user.name,
+        userPhone: user.phone,
+        bookId: book.id,
+        bookTitle: book.title,
+        price: book.price,
+        governorate,
+        address,
+        status: "pending",
+        createdAt: new Date().toISOString()
+      };
+      await saveBookOrderInFirestore(newOrder);
+      setBookOrders((prev) => [newOrder, ...prev]);
+
+      // 4. Send notification
+      addNotification(
+        user.id,
+        "طلب شراء كتاب قيد المراجعة 🚚",
+        `تم تسجيل طلبك لشراء كتاب (${book.title}) وسيتم تسليمه لشركة الشحن في أقرب وقت. تم خصم ${book.price} ج.م من محفظتك.`,
+        "payment_approved",
+        book.id,
+        book.title
+      );
+
+      // 5. Log activity
+      addActivityLog(
+        user.id,
+        "book_order",
+        "شراء كتاب 🚚",
+        `تم شراء كتاب (${book.title}) بقيمة ${book.price} ج.م وجاري تجهيز الشحن إلى محافظة ${governorate}.`
+      );
+
+      return { success: true, message: `🎉 تم الشراء بنجاح! تم خصم ${book.price} ج.م من محفظتك وجاري تجهيز طلبك للشحن.` };
+    } catch (error) {
+      console.error("Error during book purchase:", error);
+      return { success: false, message: "حدث خطأ غير متوقع أثناء إتمام عملية الشراء." };
+    }
+  };
+
+  const handleUpdateBookOrder = async (orderId: string, status: "pending" | "shipped" | "delivered" | "cancelled", shippingCompany?: string, trackingNumber?: string) => {
+    const order = bookOrders.find((o) => o.id === orderId);
+    if (!order) return;
+
+    const updatedOrder: BookOrder = {
+      ...order,
+      status,
+      shippingCompany,
+      trackingNumber
+    };
+
+    setBookOrders((prev) => prev.map((o) => (o.id === orderId ? updatedOrder : o)));
+    await saveBookOrderInFirestore(updatedOrder);
+
+    // Send notification to the student
+    let title = "تحديث حالة شحن كتابك 🚚";
+    let message = "";
+    if (status === "shipped") {
+      title = "تم شحن كتابك بنجاح! 📦";
+      message = `يسعدنا إبلاغك بأنه تم تسليم كتابك (${order.bookTitle}) لشركة الشحن (${shippingCompany || "البريد السريع"}). رقم التتبع الخاص بك هو: ${trackingNumber || "غير متوفر"}.`;
+    } else if (status === "delivered") {
+      title = "تم تسليم كتابك بنجاح! 🎉";
+      message = `تم تأكيد تسليم كتابك (${order.bookTitle}) إلى عنوانك بنجاح. دراسة ممتعة وموفقة!`;
+    } else if (status === "cancelled") {
+      title = "تم إلغاء طلب شحن الكتاب ❌";
+      message = `للأسف تم إلغاء طلب شحن كتابك (${order.bookTitle}). يرجى التواصل مع الدعم الفني لمزيد من التفاصيل.`;
+    }
+
+    addNotification(order.userId, title, message, "payment_rejected", order.bookId, order.bookTitle);
+  };
+
+  const handleAddBookStoreItem = async (newBook: BookStoreItem) => {
+    setBooks((prev) => [...prev, newBook]);
+    await saveBookStoreItemInFirestore(newBook);
+  };
+
+  const handleDeleteBookStoreItem = async (bookId: string) => {
+    setBooks((prev) => prev.filter((b) => b.id !== bookId));
+    await deleteBookStoreItemFromFirestore(bookId);
+  };
+
   // Course additions
   const handleAddNewCourse = async (newCourse: Course) => {
     setCourses((prev) => [newCourse, ...prev]);
@@ -687,7 +823,7 @@ export default function App() {
   };
 
   // Advanced features state handlers
-  const handleAddTeacher = (name: string, subject: string, phone: string, email?: string) => {
+  const handleAddTeacher = async (name: string, subject: string, phone: string, email?: string) => {
     const newTeacher: Teacher = {
       id: "teacher-" + Date.now(),
       name,
@@ -697,10 +833,12 @@ export default function App() {
       courseCount: 0
     };
     setTeachersList((prev) => [...prev, newTeacher]);
+    await saveTeacherInFirestore(newTeacher);
   };
 
-  const handleDeleteTeacher = (id: string) => {
+  const handleDeleteTeacher = async (id: string) => {
     setTeachersList((prev) => prev.filter((t) => t.id !== id));
+    await deleteTeacherFromFirestore(id);
   };
 
   const handleGenerateChargeCodes = async (value: number, count: number) => {
@@ -825,10 +963,15 @@ export default function App() {
     }
   };
 
-  const handleUpdateTeacher = (id: string, updatedData: Partial<Teacher>) => {
-    setTeachersList((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, ...updatedData } : t))
-    );
+  const handleUpdateTeacher = async (id: string, updatedData: Partial<Teacher>) => {
+    setTeachersList((prev) => {
+      const updated = prev.map((t) => (t.id === id ? { ...t, ...updatedData } : t));
+      const found = updated.find((t) => t.id === id);
+      if (found) {
+        saveTeacherInFirestore(found);
+      }
+      return updated;
+    });
   };
 
   const handleUpdateCourse = async (updatedCourse: Course) => {
@@ -1253,6 +1396,9 @@ export default function App() {
             videoSettings={videoSettings}
             platformSettings={platformSettings}
             onUpdateProfile={(updatedUser) => setUser(updatedUser)}
+            books={books}
+            bookOrders={bookOrders}
+            onBuyBook={handleBuyBook}
           />
         )}
 
@@ -1284,6 +1430,11 @@ export default function App() {
             onAddLectureToCourse={handleAddLectureToCourse}
             onEnrollStudentInCourse={handleEnrollStudentInCourse}
             onUnenrollStudentFromCourse={handleUnenrollStudentFromCourse}
+            books={books}
+            bookOrders={bookOrders}
+            onUpdateBookOrder={handleUpdateBookOrder}
+            onAddBookStoreItem={handleAddBookStoreItem}
+            onDeleteBookStoreItem={handleDeleteBookStoreItem}
           />
         )}
       </main>

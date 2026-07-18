@@ -11,7 +11,7 @@ import {
   where, 
   limit
 } from "firebase/firestore";
-import { Course, User as UserType, PendingPayment, Teacher, ChargeCode, VideoSettings, PlatformSettings, AppNotification, ActivityLog, SupportTicket, LiveQuiz } from "../types";
+import { Course, User as UserType, PendingPayment, Teacher, ChargeCode, VideoSettings, PlatformSettings, AppNotification, ActivityLog, SupportTicket, LiveQuiz, BookStoreItem, BookOrder, GradeLevel } from "../types";
 import { INITIAL_COURSES } from "../data";
 
 // Pre-seeded fallback data
@@ -77,15 +77,6 @@ const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   contactEmail: "admin@yasser.cc",
   contactTelegram: "t.me/yusr_academy",
   contactFacebook: "facebook.com/yusr_academy",
-  cloudflareEnabled: true,
-  cloudflareEmail: "admin@yasser.cc",
-  cloudflareApiKey: "cf_api_key_8732198075bc9812df",
-  cloudflareZoneId: "zone_id_092183709b183ac872a",
-  cloudflareTurnstileSiteKey: "0x4AAAAAAABBBCCC111222",
-  cloudflareTurnstileSecretKey: "0x4AAAAAAABBBCCC333444555",
-  cloudflareStreamEnabled: true,
-  cloudflareStreamToken: "stream_token_ab72d897f",
-  cloudflareStreamAccountID: "stream_acc_78129a",
   ads: [
     {
       id: "ad-1",
@@ -178,6 +169,7 @@ let activityLogsCache: ActivityLog[] | null = null;
 let settingsCache: { video: VideoSettings; platform: PlatformSettings } | null = null;
 let supportTicketsCache: SupportTicket[] | null = null;
 let liveQuizzesCache: LiveQuiz[] | null = null;
+let teachersCache: Teacher[] | null = null;
 
 // ================= COURSES SERVICE =================
 export async function fetchCourses(force = false): Promise<Course[]> {
@@ -653,4 +645,287 @@ export async function deleteLiveQuizInFirestore(id: string): Promise<void> {
     console.error("Error deleting live quiz:", error);
   }
 }
+
+// ================= TEACHERS SERVICE =================
+export async function fetchTeachers(force = false): Promise<Teacher[]> {
+  if (teachersCache && !force) {
+    return teachersCache;
+  }
+  try {
+    const querySnapshot = await getDocs(safeCol("teachers"));
+    const list: Teacher[] = [];
+    querySnapshot.forEach((doc) => {
+      list.push(doc.data() as Teacher);
+    });
+
+    if (list.length === 0) {
+      const defaultTeachers: Teacher[] = [
+        { id: "teacher-1", name: "الأستاذ ياسر أبوستيت", subject: "الرياضيات", phone: "01111111111", email: "yasser@academy.com", courseCount: 4 },
+        { id: "teacher-2", name: "الأستاذ محمد عبد المعبود", subject: "الفيزياء", phone: "01222222222", email: "abdelmabod@academy.com", courseCount: 1 },
+        { id: "teacher-3", name: "الأستاذ حسام خليل", subject: "الكيمياء", phone: "01000000000", email: "hossam@academy.com", courseCount: 0 }
+      ];
+      for (const t of defaultTeachers) {
+        await setDoc(doc(db, "teachers", t.id), t);
+      }
+      teachersCache = defaultTeachers;
+      return defaultTeachers;
+    }
+    teachersCache = list;
+    return list;
+  } catch (error) {
+    console.error("Error fetching teachers from Firestore, using fallback:", error);
+    return [
+      { id: "teacher-1", name: "الأستاذ ياسر أبوستيت", subject: "الرياضيات", phone: "01111111111", email: "yasser@academy.com", courseCount: 4 },
+      { id: "teacher-2", name: "الأستاذ محمد عبد المعبود", subject: "الفيزياء", phone: "01222222222", email: "abdelmabod@academy.com", courseCount: 1 },
+      { id: "teacher-3", name: "الأستاذ حسام خليل", subject: "الكيمياء", phone: "01000000000", email: "hossam@academy.com", courseCount: 0 }
+    ];
+  }
+}
+
+export async function saveTeacherInFirestore(teacher: Teacher): Promise<void> {
+  try {
+    await setDoc(doc(db, "teachers", teacher.id), teacher);
+    if (teachersCache) {
+      const idx = teachersCache.findIndex(t => t.id === teacher.id);
+      if (idx !== -1) {
+        teachersCache[idx] = teacher;
+      } else {
+        teachersCache.push(teacher);
+      }
+    } else {
+      teachersCache = [teacher];
+    }
+  } catch (error) {
+    console.error("Error saving teacher to Firestore:", error);
+  }
+}
+
+export async function deleteTeacherFromFirestore(teacherId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, "teachers", teacherId));
+    if (teachersCache) {
+      teachersCache = teachersCache.filter(t => t.id !== teacherId);
+    }
+  } catch (error) {
+    console.error("Error deleting teacher from Firestore:", error);
+  }
+}
+
+// ================= BOOK STORE SERVICE =================
+let booksCache: BookStoreItem[] | null = null;
+let ordersCache: BookOrder[] | null = null;
+
+export async function fetchBookStoreItems(force = false): Promise<BookStoreItem[]> {
+  if (booksCache && !force) {
+    return booksCache;
+  }
+  try {
+    const querySnapshot = await getDocs(safeCol("books"));
+    const list: BookStoreItem[] = [];
+    querySnapshot.forEach((docSnap) => {
+      list.push(docSnap.data() as BookStoreItem);
+    });
+
+    if (list.length === 0) {
+      const defaultBooks: BookStoreItem[] = [
+        {
+          id: "book-1",
+          title: "مذكرة التميز في الرياضيات العامة - الأول الثانوي (الترم الأول)",
+          author: "الأستاذ ياسر أبوستيت",
+          price: 85,
+          description: "الشرح الأوفى لجميع فصول مادة الرياضيات العامة للصف الأول الثانوي مع بنك أسئلة متكامل بالحلول النموذجية للتحضير للنظام الجديد.",
+          coverUrl: "https://images.unsplash.com/photo-1509228468518-180dd4864904?auto=format&fit=crop&q=80&w=400",
+          gradeLevel: GradeLevel.FIRST,
+          stock: 120,
+          pages: 180
+        },
+        {
+          id: "book-2",
+          title: "ملزمة الفيزياء الحديثة والكهربية الشاملة - الثالث الثانوي",
+          author: "الأستاذ محمد عبد المعبود",
+          price: 120,
+          description: "خرائط ذهنية وتدريبات الامتحانات السابقة لجميع فصول الفيزياء الكهربية والحديثة لطلاب الثانوية العامة علمي علوم وعلمي رياضة.",
+          coverUrl: "https://images.unsplash.com/photo-1614064641938-3bbee52942c7?auto=format&fit=crop&q=80&w=400",
+          gradeLevel: GradeLevel.THIRD,
+          stock: 85,
+          pages: 240
+        },
+        {
+          id: "book-3",
+          title: "كتيب الكيمياء العضوية الشامل - الثاني الثانوي",
+          author: "الأستاذ حسام خليل",
+          price: 95,
+          description: "أقوى المراجعات لمركبات الكيمياء العضوية وقوانين الغازات والنظريات الكيميائية لطلاب الصف الثاني الثانوي علمي.",
+          coverUrl: "https://images.unsplash.com/photo-1532187643603-ba119ca4109e?auto=format&fit=crop&q=80&w=400",
+          gradeLevel: GradeLevel.SECOND,
+          stock: 50,
+          pages: 150
+        }
+      ];
+      for (const b of defaultBooks) {
+        await setDoc(doc(db, "books", b.id), b);
+      }
+      booksCache = defaultBooks;
+      return defaultBooks;
+    }
+    booksCache = list;
+    return list;
+  } catch (error) {
+    console.error("Error fetching books from Firestore:", error);
+    return [];
+  }
+}
+
+export async function saveBookStoreItemInFirestore(book: BookStoreItem): Promise<void> {
+  try {
+    await setDoc(doc(db, "books", book.id), book);
+    if (booksCache) {
+      const idx = booksCache.findIndex(b => b.id === book.id);
+      if (idx !== -1) {
+        booksCache[idx] = book;
+      } else {
+        booksCache.push(book);
+      }
+    } else {
+      booksCache = [book];
+    }
+  } catch (error) {
+    console.error("Error saving book in Firestore:", error);
+  }
+}
+
+export async function deleteBookStoreItemFromFirestore(bookId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, "books", bookId));
+    if (booksCache) {
+      booksCache = booksCache.filter(b => b.id !== bookId);
+    }
+  } catch (error) {
+    console.error("Error deleting book from Firestore:", error);
+  }
+}
+
+export async function fetchBookOrders(force = false): Promise<BookOrder[]> {
+  if (ordersCache && !force) {
+    return ordersCache;
+  }
+  try {
+    const querySnapshot = await getDocs(safeCol("book_orders"));
+    const list: BookOrder[] = [];
+    querySnapshot.forEach((docSnap) => {
+      list.push(docSnap.data() as BookOrder);
+    });
+    // Sort by createdAt descending
+    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    ordersCache = list;
+    return list;
+  } catch (error) {
+    console.error("Error fetching book orders from Firestore:", error);
+    return [];
+  }
+}
+
+export async function saveBookOrderInFirestore(order: BookOrder): Promise<void> {
+  try {
+    await setDoc(doc(db, "book_orders", order.id), order);
+    if (ordersCache) {
+      const idx = ordersCache.findIndex(o => o.id === order.id);
+      if (idx !== -1) {
+        ordersCache[idx] = order;
+      } else {
+        ordersCache.unshift(order);
+      }
+    } else {
+      ordersCache = [order];
+    }
+  } catch (error) {
+    console.error("Error saving book order in Firestore:", error);
+  }
+}
+
+export async function backupAllCollections(): Promise<Record<string, any>> {
+  const collectionsToBackup = [
+    "courses",
+    "users",
+    "pending_payments",
+    "charge_codes",
+    "notifications",
+    "activity_logs",
+    "support_tickets",
+    "live_quizzes",
+    "teachers",
+    "books",
+    "book_orders",
+  ];
+  
+  const backupData: Record<string, any> = {};
+  
+  for (const colName of collectionsToBackup) {
+    try {
+      const snap = await getDocs(safeCol(colName));
+      const docsList: any[] = [];
+      snap.forEach((d) => {
+        docsList.push({ id: d.id, ...d.data() });
+      });
+      backupData[colName] = docsList;
+    } catch (err) {
+      console.error(`Error backing up collection ${colName}:`, err);
+    }
+  }
+  
+  // Get settings
+  try {
+    const docSnap = await getDoc(doc(db, "settings", "global"));
+    if (docSnap.exists()) {
+      backupData["settings"] = { id: docSnap.id, ...docSnap.data() };
+    }
+  } catch (err) {
+    console.error("Error backing up settings:", err);
+  }
+  
+  return backupData;
+}
+
+export async function clearAllDatabaseData(): Promise<void> {
+  const collectionsToClear = [
+    "courses",
+    "users",
+    "pending_payments",
+    "charge_codes",
+    "notifications",
+    "activity_logs",
+    "support_tickets",
+    "live_quizzes",
+    "teachers",
+    "books",
+    "book_orders"
+  ];
+  
+  for (const colName of collectionsToClear) {
+    try {
+      const snap = await getDocs(safeCol(colName));
+      for (const d of snap.docs) {
+        await deleteDoc(doc(db, colName, d.id));
+      }
+    } catch (err) {
+      console.error(`Error clearing collection ${colName}:`, err);
+    }
+  }
+  
+  // Reset cache variables to force refetching/re-seeding
+  coursesCache = null;
+  allUsersCache = null;
+  pendingPaymentsCache = null;
+  chargeCodesCache = null;
+  notificationsCache = null;
+  activityLogsCache = null;
+  settingsCache = null;
+  supportTicketsCache = null;
+  liveQuizzesCache = null;
+  teachersCache = null;
+  booksCache = null;
+  ordersCache = null;
+}
+
+
 

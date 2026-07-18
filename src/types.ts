@@ -184,15 +184,6 @@ export interface PlatformSettings {
   privacyPolicy?: string;
   termsOfUse?: string;
   supportInfo?: string;
-  cloudflareEnabled?: boolean;
-  cloudflareEmail?: string;
-  cloudflareApiKey?: string;
-  cloudflareZoneId?: string;
-  cloudflareTurnstileSiteKey?: string;
-  cloudflareTurnstileSecretKey?: string;
-  cloudflareStreamEnabled?: boolean;
-  cloudflareStreamToken?: string;
-  cloudflareStreamAccountID?: string;
 }
 
 export interface AppNotification {
@@ -210,7 +201,7 @@ export interface AppNotification {
 export interface ActivityLog {
   id: string;
   userId: string;
-  actionType: "watched_video" | "solved_quiz" | "recharged_balance" | "course_enrollment";
+  actionType: "watched_video" | "solved_quiz" | "recharged_balance" | "course_enrollment" | "book_order";
   title: string;
   details: string;
   timestamp: string;
@@ -263,6 +254,36 @@ export interface LiveQuiz {
     [studentId: string]: LiveQuizParticipant;
   };
 }
+
+export interface BookStoreItem {
+  id: string;
+  title: string;
+  author?: string;
+  price: number;
+  description: string;
+  coverUrl?: string;
+  imageUrl?: string;
+  gradeLevel?: GradeLevel;
+  stock: number;
+  pages?: number;
+}
+
+export interface BookOrder {
+  id: string;
+  userId: string;
+  userName: string;
+  userPhone: string;
+  bookId: string;
+  bookTitle: string;
+  price: number;
+  governorate: string;
+  address: string;
+  status: "pending" | "shipped" | "delivered" | "cancelled";
+  createdAt: string;
+  shippingCompany?: string;
+  trackingNumber?: string;
+}
+
 
 
 
