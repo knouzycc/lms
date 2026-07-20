@@ -343,6 +343,23 @@ export default function App() {
     loadData();
   }, []);
 
+  // Deep linking: Auto-open course details if courseId is in the URL query parameters
+  const hasAutoOpenedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (hasAutoOpenedRef.current) return;
+    if (!isLoading && courses.length > 0) {
+      const params = new URLSearchParams(window.location.search);
+      const courseId = params.get("courseId");
+      if (courseId) {
+        const found = courses.find((c) => c.id === courseId);
+        if (found) {
+          setSelectedCourseForDetail(found);
+          hasAutoOpenedRef.current = true;
+        }
+      }
+    }
+  }, [isLoading, courses]);
+
   // Sync active user session to LocalStorage
   React.useEffect(() => {
     if (user) {

@@ -169,6 +169,31 @@ export default function AdminDashboard({
   const setActiveTab = onChangeActiveTab !== undefined ? onChangeActiveTab : setLocalActiveTab;
   const [studentsSubTab, setStudentsSubTab] = React.useState<"list" | "payments" | "codes">("list");
 
+  // Custom Confirmation Dialog State
+  const [confirmDialog, setConfirmDialog] = React.useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void | Promise<void>;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
+
+  const requestConfirmation = (title: string, message: string, onConfirm: () => void | Promise<void>) => {
+    setConfirmDialog({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        await onConfirm();
+      }
+    });
+  };
+
   // Database maintenance states
   const [isBackingUp, setIsBackingUp] = React.useState<boolean>(false);
   const [isClearing, setIsClearing] = React.useState<boolean>(false);
@@ -480,17 +505,22 @@ export default function AdminDashboard({
   };
 
   const handleDeleteLiveQuiz = async (quizId: string) => {
-    if (!confirm("هل أنت متأكد من حذف جلسة الاختبار التنافسي المباشر بالكامل؟ سيتم مسح سجل الطلاب وجداول الترتيب.")) return;
-    try {
-      await deleteLiveQuizInFirestore(quizId);
-      if (selectedLiveQuizId === quizId) {
-        setSelectedLiveQuizId(null);
+    requestConfirmation(
+      "حذف جلسة الاختبار المباشر 🗑️",
+      "هل أنت متأكد من حذف جلسة الاختبار التنافسي المباشر بالكامل؟ سيتم مسح سجل الطلاب وجداول الترتيب نهائياً.",
+      async () => {
+        try {
+          await deleteLiveQuizInFirestore(quizId);
+          if (selectedLiveQuizId === quizId) {
+            setSelectedLiveQuizId(null);
+          }
+          setLiveQuizSuccessMsg("🗑️ تم حذف الجلسة المباشرة وسجل الصدارة بنجاح من المنصة.");
+          setTimeout(() => setLiveQuizSuccessMsg(""), 4000);
+        } catch (err) {
+          console.error(err);
+        }
       }
-      setLiveQuizSuccessMsg("🗑️ تم حذف الجلسة المباشرة وسجل الصدارة بنجاح من المنصة.");
-      setTimeout(() => setLiveQuizSuccessMsg(""), 4000);
-    } catch (err) {
-      console.error(err);
-    }
+    );
   };
 
   const handleAdminSendReply = async (ticketId: string) => {
@@ -1490,9 +1520,13 @@ export default function AdminDashboard({
                             {teacher.id !== "teacher-1" && (
                               <button
                                 onClick={() => {
-                                  if (confirm(`هل أنت متأكد من حذف المدرس "${teacher.name}"؟`)) {
-                                    onDeleteTeacher(teacher.id);
-                                  }
+                                  requestConfirmation(
+                                    "حذف المعلم 🗑️",
+                                    `هل أنت متأكد من حذف بيانات المعلم "${teacher.name}" نهائياً من المنصة؟ لا يمكن التراجع عن هذا الإجراء.`,
+                                    () => {
+                                      onDeleteTeacher(teacher.id);
+                                    }
+                                  );
                                 }}
                                 className="p-1.5 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                                 title="حذف هذا المدرس"
@@ -1843,17 +1877,21 @@ export default function AdminDashboard({
                           تعديل ⚙️
                         </button>
                         <button
-                          onClick={async () => {
-                            if (confirm(`هل أنت متأكد من حذف الكورس "${course.title}" نهائياً من المنصة؟ سينتج عن هذا حذف جميع محاضراته وارتباطاته.`)) {
-                              if (onDeleteCourse) {
-                                const res = await onDeleteCourse(course.id);
-                                if (res.success) {
-                                  alert("تم حذف الكورس بنجاح!");
-                                } else {
-                                  alert(res.message || "حدث خطأ أثناء الحذف");
+                          onClick={() => {
+                            requestConfirmation(
+                              "حذف الكورس 🗑️",
+                              `هل أنت متأكد من حذف الكورس "${course.title}" نهائياً من المنصة؟ سينتج عن هذا حذف جميع محاضراته والملحقات التابعة له بشكل نهائي.`,
+                              async () => {
+                                if (onDeleteCourse) {
+                                  const res = await onDeleteCourse(course.id);
+                                  if (res.success) {
+                                    alert("تم حذف الكورس بنجاح!");
+                                  } else {
+                                    alert(res.message || "حدث خطأ أثناء الحذف");
+                                  }
                                 }
                               }
-                            }
+                            );
                           }}
                           className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-black px-4 py-2 rounded-xl text-xs transition-colors cursor-pointer text-center"
                         >
@@ -2760,24 +2798,28 @@ https://www.youtube.com/watch?v=VideoID3"
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={async () => {
-                                          if (confirm(`هل أنت متأكد من حذف محاضرة "${lecture.title}" نهائياً من كورس "${course.title}"؟`)) {
-                                            const updatedLectures = (course.lectures || []).filter(l => l.id !== lecture.id);
-                                            const updatedCourseObj: Course = {
-                                              ...course,
-                                              lecturesCount: updatedLectures.length,
-                                              lectures: updatedLectures
-                                            };
-                                            if (onUpdateCourse) {
-                                              const res = await onUpdateCourse(updatedCourseObj);
-                                              if (res.success) {
-                                                alert("تم حذف المحاضرة بنجاح من قاعدة البيانات! 🗑️");
-                                                setEditingLecture(null);
-                                              } else {
-                                                alert(res.message || "فشل حذف المحاضرة");
+                                        onClick={() => {
+                                          requestConfirmation(
+                                            "حذف المحاضرة 🗑️",
+                                            `هل أنت متأكد من حذف محاضرة "${lecture.title}" نهائياً من كورس "${course.title}"؟ سينتج عن هذا حذف محتوى الدرس وملخصاته واختباراته بشكل نهائي.`,
+                                            async () => {
+                                              const updatedLectures = (course.lectures || []).filter(l => l.id !== lecture.id);
+                                              const updatedCourseObj: Course = {
+                                                ...course,
+                                                lecturesCount: updatedLectures.length,
+                                                lectures: updatedLectures
+                                              };
+                                              if (onUpdateCourse) {
+                                                const res = await onUpdateCourse(updatedCourseObj);
+                                                if (res.success) {
+                                                  alert("تم حذف المحاضرة بنجاح من قاعدة البيانات! 🗑️");
+                                                  setEditingLecture(null);
+                                                } else {
+                                                  alert(res.message || "فشل حذف المحاضرة");
+                                                }
                                               }
                                             }
-                                          }
+                                          );
                                         }}
                                         className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-extrabold px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-[10px] flex items-center gap-1"
                                       >
@@ -3319,17 +3361,21 @@ https://www.youtube.com/watch?v=VideoID3"
 
                               {/* Delete Student entirely */}
                               <button
-                                onClick={async () => {
-                                  if (confirm(`هل أنت متأكد من حذف الطالب "${student.name}" نهائياً من المنصة؟`)) {
-                                    if (onDeleteStudent) {
-                                      const res = await onDeleteStudent(student.phone);
-                                      if (res.success) {
-                                        alert("تم حذف الطالب بنجاح!");
-                                      } else {
-                                        alert(res.message || "حدث خطأ أثناء الحذف");
+                                onClick={() => {
+                                  requestConfirmation(
+                                    "حذف حساب الطالب 🗑️",
+                                    `هل أنت متأكد من حذف حساب الطالب "${student.name}" نهائياً من المنصة؟ سينتج عن هذا حذف جميع بياناته واشتراكاته وسجلاته.`,
+                                    async () => {
+                                      if (onDeleteStudent) {
+                                        const res = await onDeleteStudent(student.phone);
+                                        if (res.success) {
+                                          alert("تم حذف الطالب بنجاح!");
+                                        } else {
+                                          alert(res.message || "حدث خطأ أثناء الحذف");
+                                        }
                                       }
                                     }
-                                  }
+                                  );
                                 }}
                                 className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-black px-3 py-2 rounded-xl text-[10px] transition-colors cursor-pointer flex items-center gap-0.5"
                               >
@@ -4710,18 +4756,22 @@ https://www.youtube.com/watch?v=VideoID3"
                                 </div>
 
                                 <button
-                                  onClick={async () => {
-                                    if (confirm(`هل أنت متأكد من إلغاء اشتراك الطالب "${st.name}" من كورس "${activeCourse?.title}"؟`)) {
-                                      if (onUnenrollStudentFromCourse) {
-                                        const res = await onUnenrollStudentFromCourse(st.phone, selectedCourseIdForStudents);
-                                        if (res.success) {
-                                          alert("تم إلغاء الاشتراك بنجاح من قاعدة البيانات! 🗑️");
-                                          loadAllUsersFromDb();
-                                        } else {
-                                          alert(res.message);
+                                  onClick={() => {
+                                    requestConfirmation(
+                                      "إلغاء اشتراك الطالب 🗑️",
+                                      `هل أنت متأكد من إلغاء اشتراك الطالب "${st.name}" من كورس "${activeCourse?.title}"؟ لن يتمكن من الوصول للمحتوى بعد الآن.`,
+                                      async () => {
+                                        if (onUnenrollStudentFromCourse) {
+                                          const res = await onUnenrollStudentFromCourse(st.phone, selectedCourseIdForStudents);
+                                          if (res.success) {
+                                            alert("تم إلغاء الاشتراك بنجاح من قاعدة البيانات! 🗑️");
+                                            loadAllUsersFromDb();
+                                          } else {
+                                            alert(res.message);
+                                          }
                                         }
                                       }
-                                    }
+                                    );
                                   }}
                                   className="text-[10px] font-black border border-red-150 hover:bg-red-50 text-red-600 px-2.5 py-1.5 rounded-xl transition-all cursor-pointer flex items-center gap-1 self-end sm:self-center shrink-0"
                                 >
@@ -5008,9 +5058,13 @@ https://www.youtube.com/watch?v=VideoID3"
                               <div className="pt-2 flex justify-end">
                                 <button
                                   onClick={() => {
-                                    if (window.confirm("هل أنت متأكد من رغبتك في حذف هذا الكتيب نهائياً من المتجر؟")) {
-                                      onDeleteBookStoreItem?.(book.id);
-                                    }
+                                    requestConfirmation(
+                                      "حذف الكتيب 🗑️",
+                                      `هل أنت متأكد من رغبتك في حذف الكتيب "${book.title}" نهائياً من المتجر والمنصة؟`,
+                                      () => {
+                                        onDeleteBookStoreItem?.(book.id);
+                                      }
+                                    );
                                   }}
                                   className="text-[9px] font-extrabold text-red-650 hover:text-red-800 transition-colors cursor-pointer flex items-center gap-1 bg-red-50 hover:bg-red-100 px-2 py-0.8 rounded-lg"
                                 >
@@ -5244,6 +5298,67 @@ https://www.youtube.com/watch?v=VideoID3"
 
         </AnimatePresence>
       </div>
+
+      {/* Custom Confirmation Modal */}
+      <AnimatePresence>
+        {confirmDialog.isOpen && (
+          <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+              className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs"
+            />
+
+            {/* Modal Body */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full relative z-10 border border-slate-100 text-right space-y-5"
+            >
+              {/* Icon & Title */}
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center shrink-0 text-rose-600">
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </div>
+                <div className="space-y-1.5 flex-1 min-w-0">
+                  <h3 className="text-sm font-black text-slate-900">
+                    {confirmDialog.title}
+                  </h3>
+                  <p className="text-xs text-gray-500 leading-relaxed font-bold">
+                    {confirmDialog.message}
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-3 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  تراجع وإلغاء ✖️
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    confirmDialog.onConfirm();
+                  }}
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-xl text-xs shadow-md shadow-rose-600/10 transition-all cursor-pointer"
+                >
+                  تأكيد الحذف 🗑️
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

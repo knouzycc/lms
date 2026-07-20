@@ -35,6 +35,7 @@ export default function CourseDetailModal({
   const [commentInput, setCommentInput] = React.useState("");
   const [hoverRating, setHoverRating] = React.useState<number | null>(null);
   const [successMsg, setSuccessMsg] = React.useState("");
+  const [copied, setCopied] = React.useState(false);
 
   const isEnrolled = user?.enrolledCourseIds.includes(course.id);
   const canAfford = user ? user.walletBalance >= course.price : false;
@@ -119,6 +120,75 @@ export default function CourseDetailModal({
               <p className="text-sm text-gray-600 leading-relaxed">
                 {course.description}
               </p>
+            </div>
+
+            {/* Share Course Widget */}
+            <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-3">
+              <div className="text-right">
+                <span className="text-xs font-extrabold text-slate-800 block">📢 شارك الكورس مع زملائك:</span>
+                <span className="text-[10px] text-gray-400">انشر العلم وساعد زملائك في الوصول لهذا الكورس المميز ✨</span>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {/* WhatsApp */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const shareText = `أوصيك بالتسجيل في كورس "${course.title}" للأستاذ ${course.teacherName || "القدير"}!`;
+                    const shareUrl = `${window.location.origin}/?courseId=${course.id}`;
+                    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareText + "\n" + shareUrl)}`, "_blank");
+                  }}
+                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold border border-emerald-100"
+                  title="مشاركة عبر واتساب"
+                >
+                  <span>🟢 واتساب</span>
+                </button>
+
+                {/* Telegram */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const shareText = `أوصيك بالتسجيل في كورس "${course.title}" للأستاذ ${course.teacherName || "القدير"}!`;
+                    const shareUrl = `${window.location.origin}/?courseId=${course.id}`;
+                    window.open(`https://telegram.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`, "_blank");
+                  }}
+                  className="px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-xl transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold border border-sky-100"
+                  title="مشاركة عبر تيليجرام"
+                >
+                  <span>🔵 تيليجرام</span>
+                </button>
+
+                {/* Facebook */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const shareUrl = `${window.location.origin}/?courseId=${course.id}`;
+                    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`, "_blank");
+                  }}
+                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold border border-blue-100"
+                  title="مشاركة عبر فيسبوك"
+                >
+                  <span>🔵 فيسبوك</span>
+                </button>
+
+                {/* Copy Link */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const shareUrl = `${window.location.origin}/?courseId=${course.id}`;
+                    navigator.clipboard.writeText(shareUrl);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold border border-slate-200"
+                  title="نسخ الرابط"
+                >
+                  {copied ? (
+                    <span className="text-emerald-600 flex items-center gap-1">✔️ تم النسخ!</span>
+                  ) : (
+                    <span>🔗 نسخ الرابط</span>
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Course Curriculum */}

@@ -235,6 +235,34 @@ export default function StudentDashboard({
   const activeTab = propActiveTab !== undefined ? propActiveTab : localActiveTab;
   const setActiveTab = onChangeActiveTab !== undefined ? onChangeActiveTab : setLocalActiveTab;
   const [selectedCategory, setSelectedCategory] = React.useState<CourseCategory | "all">("all");
+  const [lectureCopied, setLectureCopied] = React.useState(false);
+
+  // Deep linking initial check
+  const hasCheckedParamsRef = React.useRef(false);
+  React.useEffect(() => {
+    if (hasCheckedParamsRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const courseId = params.get("courseId");
+    const lectureId = params.get("lectureId");
+    if (courseId && courses.length > 0 && user?.enrolledCourseIds?.includes(courseId)) {
+      const course = courses.find((c) => c.id === courseId);
+      if (course) {
+        setActiveCourse(course);
+        if (lectureId) {
+          const lec = (course.lectures || []).find((l) => l.id === lectureId);
+          if (lec) {
+            setActiveLecture(lec);
+          } else {
+            setActiveLecture(course.lectures[0] || null);
+          }
+        } else {
+          setActiveLecture(course.lectures[0] || null);
+        }
+        setViewingMode("video");
+        hasCheckedParamsRef.current = true;
+      }
+    }
+  }, [courses, user]);
   
   // Live Quizzes States
   const [liveQuizzes, setLiveQuizzes] = React.useState<LiveQuiz[]>([]);
@@ -1394,6 +1422,74 @@ export default function StudentDashboard({
                                 <CheckCircle className="w-4 h-4" /> أكملت مشاهدة هذا الدرس بنجاح
                               </span>
                             )}
+                          </div>
+
+                          {/* Share Lecture Row */}
+                          <div className="p-5 bg-slate-50 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-3 rounded-b-3xl">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-gray-700">📢 مشاركة هذه المحاضرة:</span>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              {/* WhatsApp */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const shareText = `أوصيك بمشاهدة محاضرة "${activeLecture.title}" من كورس "${activeCourse?.title || ""}"!`;
+                                  const shareUrl = `${window.location.origin}/?courseId=${activeCourse?.id || ""}&lectureId=${activeLecture.id}`;
+                                  window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareText + "\n" + shareUrl)}`, "_blank");
+                                }}
+                                className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold border border-emerald-100"
+                                title="مشاركة عبر واتساب"
+                              >
+                                <span>🟢 واتساب</span>
+                              </button>
+
+                              {/* Telegram */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const shareText = `أوصيك بمشاهدة محاضرة "${activeLecture.title}" من كورس "${activeCourse?.title || ""}"!`;
+                                  const shareUrl = `${window.location.origin}/?courseId=${activeCourse?.id || ""}&lectureId=${activeLecture.id}`;
+                                  window.open(`https://telegram.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`, "_blank");
+                                }}
+                                className="px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-xl transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold border border-sky-100"
+                                title="مشاركة عبر تيليجرام"
+                              >
+                                <span>🔵 تيليجرام</span>
+                              </button>
+
+                              {/* Facebook */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const shareUrl = `${window.location.origin}/?courseId=${activeCourse?.id || ""}&lectureId=${activeLecture.id}`;
+                                  window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`, "_blank");
+                                }}
+                                className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold border border-blue-100"
+                                title="مشاركة عبر فيسبوك"
+                              >
+                                <span>🔵 فيسبوك</span>
+                              </button>
+
+                              {/* Copy Link */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const shareUrl = `${window.location.origin}/?courseId=${activeCourse?.id || ""}&lectureId=${activeLecture.id}`;
+                                  navigator.clipboard.writeText(shareUrl);
+                                  setLectureCopied(true);
+                                  setTimeout(() => setLectureCopied(false), 2000);
+                                }}
+                                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold border border-slate-200"
+                                title="نسخ رابط الدرس"
+                              >
+                                {lectureCopied ? (
+                                  <span className="text-emerald-600 flex items-center gap-1">✔️ تم النسخ!</span>
+                                ) : (
+                                  <span>🔗 نسخ الرابط</span>
+                                )}
+                              </button>
+                            </div>
                           </div>
                         </div>
 
