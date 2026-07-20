@@ -2762,7 +2762,7 @@ https://www.youtube.com/watch?v=VideoID3"
                                         type="button"
                                         onClick={async () => {
                                           if (confirm(`هل أنت متأكد من حذف محاضرة "${lecture.title}" نهائياً من كورس "${course.title}"؟`)) {
-                                            const updatedLectures = course.lectures.filter(l => l.id !== lecture.id);
+                                            const updatedLectures = (course.lectures || []).filter(l => l.id !== lecture.id);
                                             const updatedCourseObj: Course = {
                                               ...course,
                                               lecturesCount: updatedLectures.length,
@@ -2828,8 +2828,8 @@ https://www.youtube.com/watch?v=VideoID3"
                                   };
                                 }
 
-                                const updatedLectures = course.lectures.map(l => {
-                                  if (l.id === editingLecture.id) {
+                                const updatedLectures = (course.lectures || []).map(l => {
+                                  if (editingLecture && l.id === editingLecture.id) {
                                     return {
                                       ...l,
                                       title: editLecTitle.trim(),

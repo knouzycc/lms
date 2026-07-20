@@ -186,7 +186,8 @@ export async function fetchCourses(force = false): Promise<Course[]> {
     if (list.length === 0) {
       // Seed initial courses if empty
       for (const course of INITIAL_COURSES) {
-        await setDoc(doc(db, "courses", course.id), course);
+        const cleanSeedCourse = JSON.parse(JSON.stringify(course));
+        await setDoc(doc(db, "courses", course.id), cleanSeedCourse);
       }
       coursesCache = INITIAL_COURSES;
       return INITIAL_COURSES;
@@ -201,7 +202,8 @@ export async function fetchCourses(force = false): Promise<Course[]> {
 
 export async function saveCourseInFirestore(course: Course): Promise<void> {
   try {
-    await setDoc(doc(db, "courses", course.id), course);
+    const cleanCourse = JSON.parse(JSON.stringify(course));
+    await setDoc(doc(db, "courses", course.id), cleanCourse);
     if (coursesCache) {
       const idx = coursesCache.findIndex(c => c.id === course.id);
       if (idx !== -1) {
@@ -214,6 +216,7 @@ export async function saveCourseInFirestore(course: Course): Promise<void> {
     }
   } catch (error) {
     console.error("Error saving course to Firestore:", error);
+    throw error;
   }
 }
 
@@ -225,6 +228,7 @@ export async function deleteCourseFromFirestore(courseId: string): Promise<void>
     }
   } catch (error) {
     console.error("Error deleting course from Firestore:", error);
+    throw error;
   }
 }
 

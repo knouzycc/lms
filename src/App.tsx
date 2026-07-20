@@ -664,8 +664,8 @@ export default function App() {
         if (c.id === courseId) {
           const u = {
             ...c,
-            lecturesCount: c.lecturesCount + 1,
-            lectures: [...c.lectures, newLecture],
+            lecturesCount: (c.lecturesCount || 0) + 1,
+            lectures: [...(c.lectures || []), newLecture],
           };
           updatedCourseObj = u;
           return u;
@@ -681,8 +681,8 @@ export default function App() {
         if (!prev) return null;
         return {
           ...prev,
-          lecturesCount: prev.lecturesCount + 1,
-          lectures: [...prev.lectures, newLecture],
+          lecturesCount: (prev.lecturesCount || 0) + 1,
+          lectures: [...(prev.lectures || []), newLecture],
         };
       });
     }
@@ -724,8 +724,8 @@ export default function App() {
         if (c.id === courseId) {
           const u = {
             ...c,
-            lecturesCount: c.lecturesCount + newLectures.length,
-            lectures: [...c.lectures, ...newLectures],
+            lecturesCount: (c.lecturesCount || 0) + newLectures.length,
+            lectures: [...(c.lectures || []), ...newLectures],
           };
           updatedCourseObj = u;
           return u;
@@ -740,8 +740,8 @@ export default function App() {
         if (!prev) return null;
         return {
           ...prev,
-          lecturesCount: prev.lecturesCount + newLectures.length,
-          lectures: [...prev.lectures, ...newLectures],
+          lecturesCount: (prev.lecturesCount || 0) + newLectures.length,
+          lectures: [...(prev.lectures || []), ...newLectures],
         };
       });
     }
