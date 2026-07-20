@@ -75,6 +75,13 @@ import {
 } from "recharts";
 import { Course, PendingPayment, GradeLevel, CourseCategory, Teacher, ChargeCode, VideoSettings, PlatformSettings, AdCampaign, SupportTicket, TicketReply, LiveQuiz, LiveQuizParticipant, User, Question, Quiz, BookStoreItem, BookOrder } from "../types";
 import { fetchAllSupportTickets, saveSupportTicketInFirestore, fetchLiveQuizzes, saveLiveQuizInFirestore, deleteLiveQuizInFirestore, fetchAllUsers, backupAllCollections, clearAllDatabaseData } from "../lib/dbService";
+import {
+  fetchYoutubeVideoDetails,
+  fetchYoutubePlaylistVideos,
+  extractYoutubeVideoId,
+  extractYoutubePlaylistId,
+  YoutubeImportedVideo
+} from "../lib/youtubeService";
 import { db } from "../firebase";
 import { collection, doc, setDoc, updateDoc, onSnapshot, getDoc } from "firebase/firestore";
 
@@ -88,6 +95,7 @@ interface AdminDashboardProps {
   onRejectPayment: (paymentId: string) => void;
   onAddNewCourse: (course: Course) => void;
   onAddLectureToCourse?: (courseId: string, lectureTitle: string, duration: string, videoUrl: string, pdfUrl: string, quiz?: Quiz) => void;
+  onAddLecturesToCourse?: (courseId: string, lectures: { title: string; duration: string; videoUrl: string; pdfUrl: string }[]) => Promise<void>;
   onEnrollStudentInCourse?: (studentPhone: string, courseId: string) => Promise<{ success: boolean; message: string }> | { success: boolean; message: string };
   onUnenrollStudentFromCourse?: (studentPhone: string, courseId: string) => Promise<{ success: boolean; message: string }> | { success: boolean; message: string };
   
@@ -124,6 +132,7 @@ export default function AdminDashboard({
   onRejectPayment,
   onAddNewCourse,
   onAddLectureToCourse,
+  onAddLecturesToCourse,
   onEnrollStudentInCourse,
   onUnenrollStudentFromCourse,
   teachers,
@@ -563,6 +572,17 @@ export default function AdminDashboard({
   const [lecturePdfUrl, setLecturePdfUrl] = React.useState("");
   const [lectureSuccessMsg, setLectureSuccessMsg] = React.useState("");
 
+  // States for YouTube automatic importing
+  const [ytImportMode, setYtImportMode] = React.useState<"single" | "playlist" | "urls_list">("single");
+  const [ytVideoInput, setYtVideoInput] = React.useState("");
+  const [ytPlaylistInput, setYtPlaylistInput] = React.useState("");
+  const [ytUrlsListInput, setYtUrlsListInput] = React.useState("");
+  const [ytImporting, setYtImporting] = React.useState(false);
+  const [ytImportError, setYtImportError] = React.useState("");
+  const [ytImportSuccess, setYtImportSuccess] = React.useState("");
+  const [ytImportedPreviewVideos, setYtImportedPreviewVideos] = React.useState<YoutubeImportedVideo[]>([]);
+  const [ytSelectedVideoIds, setYtSelectedVideoIds] = React.useState<string[]>([]);
+
   // Quiz Creator and Video Uploader States
   const [quizEnabled, setQuizEnabled] = React.useState<boolean>(false);
   const [quizTitleText, setQuizTitleText] = React.useState<string>("");
@@ -757,6 +777,14 @@ export default function AdminDashboard({
     setIsClearing(true);
     try {
       await clearAllDatabaseData();
+      
+      // Clear local storage cached collections (except user session and theme)
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith("math_academy_") && key !== "math_academy_user" && key !== "math_academy_dark_mode") {
+          localStorage.removeItem(key);
+        }
+      });
+
       alert("🗑️ تم مسح جميع البيانات من قاعدة البيانات بنجاح! سيقوم النظام الآن بإعادة تهيئة البيانات الافتراضية عند تحديث الصفحة.");
       window.location.reload();
     } catch (err) {
@@ -955,6 +983,174 @@ export default function AdminDashboard({
     setQuizQuestions([{ id: "q-1", text: "", options: ["", "", "", ""], correctAnswerIndex: 0, explanation: "" }]);
 
     setTimeout(() => setLectureSuccessMsg(""), 5000);
+  };
+
+  const handleFetchYoutubeSingle = async () => {
+    if (!ytVideoInput.trim()) {
+      setYtImportError("يرجى إدخال رابط أو معرف فيديو يوتيوب أولاً!");
+      return;
+    }
+    setYtImporting(true);
+    setYtImportError("");
+    setYtImportSuccess("");
+    try {
+      const videoId = extractYoutubeVideoId(ytVideoInput);
+      if (!videoId) {
+        setYtImportError("عذراً، لم نتمكن من استخراج معرف الفيديو من الرابط المدخل. يرجى التأكد من صحة الرابط.");
+        setYtImporting(false);
+        return;
+      }
+      const video = await fetchYoutubeVideoDetails(videoId);
+      if (video) {
+        setYtImportedPreviewVideos([video]);
+        setYtSelectedVideoIds([video.id]);
+        setYtImportSuccess("✨ تم العثور على الفيديو بنجاح! يمكنك تعديل العنوان أو تأكيد الاستيراد بالأسفل.");
+      } else {
+        setYtImportError("فشل جلب تفاصيل الفيديو من يوتيوب. يرجى التحقق من اتصالك بالإنترنت وصحة الرابط.");
+      }
+    } catch (err) {
+      console.error(err);
+      setYtImportError("حدث خطأ أثناء الاتصال بخوادم يوتيوب.");
+    } finally {
+      setYtImporting(false);
+    }
+  };
+
+  const handleFetchYoutubePlaylist = async () => {
+    if (!ytPlaylistInput.trim()) {
+      setYtImportError("يرجى إدخال رابط أو معرف قائمة تشغيل يوتيوب أولاً!");
+      return;
+    }
+    setYtImporting(true);
+    setYtImportError("");
+    setYtImportSuccess("");
+    try {
+      const playlistId = extractYoutubePlaylistId(ytPlaylistInput);
+      if (!playlistId) {
+        setYtImportError("عذراً، لم نتمكن من استخراج معرف قائمة التشغيل. يرجى إدخال رابط قائمة تشغيل كامل وصحيح.");
+        setYtImporting(false);
+        return;
+      }
+      const videos = await fetchYoutubePlaylistVideos(playlistId);
+      if (videos && videos.length > 0) {
+        setYtImportedPreviewVideos(videos);
+        setYtSelectedVideoIds(videos.map(v => v.id));
+        setYtImportSuccess(`🎉 تم بنجاح جلب عدد ${videos.length} فيديو من قائمة التشغيل! يمكنك اختيار الفيديوهات واستيرادها دفعة واحدة.`);
+      } else {
+        setYtImportError("لم نتمكن من العثور على فيديوهات في هذه القائمة. يرجى التأكد من أن قائمة التشغيل عامة (Public) وليست خاصة، وجرب مجدداً.");
+      }
+    } catch (err) {
+      console.error(err);
+      setYtImportError("حدث خطأ أثناء جلب قائمة التشغيل عبر خدمة بروكسي CORS.");
+    } finally {
+      setYtImporting(false);
+    }
+  };
+
+  const handleParseUrlsList = async () => {
+    if (!ytUrlsListInput.trim()) {
+      setYtImportError("يرجى إدخال روابط الفيديوهات أولاً!");
+      return;
+    }
+    setYtImporting(true);
+    setYtImportError("");
+    setYtImportSuccess("");
+    try {
+      const lines = ytUrlsListInput.split("\n").map(l => l.trim()).filter(Boolean);
+      const uniqueIds = new Set<string>();
+      for (const line of lines) {
+        const id = extractYoutubeVideoId(line);
+        if (id) {
+          uniqueIds.add(id);
+        }
+      }
+
+      if (uniqueIds.size === 0) {
+        setYtImportError("لم يتم العثور على أي روابط يوتيوب صالحة في النص المدخل.");
+        setYtImporting(false);
+        return;
+      }
+
+      const idArray = Array.from(uniqueIds);
+      // Fetch details in parallel with safety
+      const fetchPromises = idArray.map(async (id) => {
+        try {
+          const detail = await fetchYoutubeVideoDetails(id);
+          return detail || {
+            id,
+            title: `فيديو يوتيوب جديد (${id})`,
+            duration: "45 دقيقة",
+            thumbnailUrl: `https://img.youtube.com/vi/${id}/hqdefault.jpg`,
+            videoUrl: `https://www.youtube.com/embed/${id}`
+          };
+        } catch {
+          return {
+            id,
+            title: `فيديو يوتيوب جديد (${id})`,
+            duration: "45 دقيقة",
+            thumbnailUrl: `https://img.youtube.com/vi/${id}/hqdefault.jpg`,
+            videoUrl: `https://www.youtube.com/embed/${id}`
+          };
+        }
+      });
+
+      const results = await Promise.all(fetchPromises);
+      setYtImportedPreviewVideos(results);
+      setYtSelectedVideoIds(results.map(r => r.id));
+      setYtImportSuccess(`✨ تم بنجاح استخراج وتجهيز عدد ${results.length} فيديو يوتيوب! حدد المحاضرات المطلوبة للاستيراد.`);
+    } catch (err) {
+      console.error(err);
+      setYtImportError("حدث خطأ أثناء معالجة قائمة الروابط.");
+    } finally {
+      setYtImporting(false);
+    }
+  };
+
+  const handleExecuteYoutubeImport = async () => {
+    if (!selectedCourseId) {
+      alert("يرجى اختيار الكورس المستهدف أولاً من القائمة المنسدلة!");
+      return;
+    }
+    const selectedVideos = ytImportedPreviewVideos.filter(v => ytSelectedVideoIds.includes(v.id));
+    if (selectedVideos.length === 0) {
+      alert("يرجى تحديد فيديو واحد على الأقل للاستيراد!");
+      return;
+    }
+
+    setYtImporting(true);
+    try {
+      const lecturesToImport = selectedVideos.map(v => ({
+        title: v.title,
+        duration: v.duration || "45 دقيقة",
+        videoUrl: v.videoUrl,
+        pdfUrl: "ملزمة الشرح المرفقة.pdf"
+      }));
+
+      if (onAddLecturesToCourse) {
+        await onAddLecturesToCourse(selectedCourseId, lecturesToImport);
+      } else if (onAddLectureToCourse) {
+        // Fallback to single-addition sequential if batch is not fully ready (though we defined it)
+        for (const lect of lecturesToImport) {
+          await onAddLectureToCourse(selectedCourseId, lect.title, lect.duration, lect.videoUrl, lect.pdfUrl);
+        }
+      }
+
+      const courseObj = courses.find(c => c.id === selectedCourseId);
+      alert(`🎉 تم بنجاح استيراد عدد ${selectedVideos.length} محاضرة/فيديو يوتيوب إلى كورس (${courseObj?.title || ""}) وحفظ البيانات في قاعدة البيانات وتنبيه الطلاب المشتركين!`);
+      
+      // Clear youtube state
+      setYtVideoInput("");
+      setYtPlaylistInput("");
+      setYtUrlsListInput("");
+      setYtImportedPreviewVideos([]);
+      setYtSelectedVideoIds([]);
+      setYtImportSuccess("");
+    } catch (err) {
+      console.error(err);
+      alert("حدث خطأ أثناء حفظ المحاضرات المستوردة في قاعدة البيانات.");
+    } finally {
+      setYtImporting(false);
+    }
   };
 
   const handleAddTeacherSubmit = (e: React.FormEvent) => {
@@ -2043,6 +2239,337 @@ export default function AdminDashboard({
                       </button>
                     </div>
                   </form>
+                </div>
+
+                {/* YouTube Automatic Lecture Importer Section */}
+                <div className="bg-gradient-to-r from-red-600/5 to-amber-500/5 border border-red-100/80 p-6 sm:p-8 rounded-3xl space-y-6">
+                  <div className="border-b border-red-100/50 pb-4 flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                    <div>
+                      <h3 className="text-base font-black text-gray-900 flex items-center gap-2">
+                        <Zap className="w-5 h-5 text-amber-500 animate-pulse" />
+                        <span>الاستيراد التلقائي والمباشر للدروس من يوتيوب 🚀</span>
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-1">
+                        وفر وقتك واستورد دروساً فردية أو قائمة تشغيل كاملة دفعة واحدة من يوتيوب مع استخراج العناوين وتأمين تشغيلها.
+                      </p>
+                    </div>
+                    <span className="self-start px-3 py-1 bg-amber-100 text-amber-800 text-[10px] font-black rounded-full">جديد ومطور</span>
+                  </div>
+
+                  {ytImportError && (
+                    <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-600 text-xs font-bold leading-relaxed shadow-sm">
+                      ⚠️ {ytImportError}
+                    </div>
+                  )}
+
+                  {ytImportSuccess && (
+                    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-600 text-xs font-bold leading-relaxed shadow-sm">
+                      ✅ {ytImportSuccess}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="block text-xs font-black text-slate-800">1. الكورس المستهدف بالاستيراد 🎓</label>
+                      <select
+                        required
+                        value={selectedCourseId}
+                        onChange={(e) => setSelectedCourseId(e.target.value)}
+                        className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-xs text-right outline-hidden focus:border-red-500 cursor-pointer"
+                      >
+                        <option value="">-- اختر الكورس المستهدف --</option>
+                        {courses.map((course) => (
+                          <option key={course.id} value={course.id}>
+                            [{gradeLabels[course.grade] || course.grade}] - {course.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-xs font-black text-slate-800">2. حدد طريقة الاستيراد 🛠️</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setYtImportMode("single");
+                            setYtImportedPreviewVideos([]);
+                            setYtImportError("");
+                            setYtImportSuccess("");
+                          }}
+                          className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            ytImportMode === "single"
+                              ? "bg-red-600 text-white shadow-sm"
+                              : "bg-white border border-gray-200 text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          فيديو فردي
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setYtImportMode("playlist");
+                            setYtImportedPreviewVideos([]);
+                            setYtImportError("");
+                            setYtImportSuccess("");
+                          }}
+                          className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            ytImportMode === "playlist"
+                              ? "bg-red-600 text-white shadow-sm"
+                              : "bg-white border border-gray-200 text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          قائمة تشغيل
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setYtImportMode("urls_list");
+                            setYtImportedPreviewVideos([]);
+                            setYtImportError("");
+                            setYtImportSuccess("");
+                          }}
+                          className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            ytImportMode === "urls_list"
+                              ? "bg-red-600 text-white shadow-sm"
+                              : "bg-white border border-gray-200 text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          قائمة روابط
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Import input panels based on mode */}
+                  <div className="bg-white p-5 rounded-2xl border border-gray-150 space-y-4">
+                    {ytImportMode === "single" && (
+                      <div className="space-y-3">
+                        <label className="block text-xs font-bold text-gray-700">رابط فيديو يوتيوب أو معرف الفيديو (Video ID)</label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <input
+                            type="text"
+                            placeholder="مثال: https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                            value={ytVideoInput}
+                            onChange={(e) => setYtVideoInput(e.target.value)}
+                            className="flex-1 px-3 py-2.5 bg-slate-50 border border-gray-200 rounded-xl text-xs text-left font-mono outline-hidden focus:border-red-500"
+                            dir="ltr"
+                          />
+                          <button
+                            type="button"
+                            disabled={ytImporting}
+                            onClick={handleFetchYoutubeSingle}
+                            className="px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-black rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            {ytImporting ? (
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Download className="w-4 h-4" />
+                            )}
+                            <span>جلب البيانات 🔍</span>
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-gray-400">يدعم الروابط بجميع الصيغ (Shorts, Embed, Watch, Share).</p>
+                      </div>
+                    )}
+
+                    {ytImportMode === "playlist" && (
+                      <div className="space-y-3">
+                        <label className="block text-xs font-bold text-gray-700">رابط قائمة التشغيل على يوتيوب (Playlist URL)</label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <input
+                            type="text"
+                            placeholder="مثال: https://www.youtube.com/playlist?list=PLBCF2930741A961E3"
+                            value={ytPlaylistInput}
+                            onChange={(e) => setYtPlaylistInput(e.target.value)}
+                            className="flex-1 px-3 py-2.5 bg-slate-50 border border-gray-200 rounded-xl text-xs text-left font-mono outline-hidden focus:border-red-500"
+                            dir="ltr"
+                          />
+                          <button
+                            type="button"
+                            disabled={ytImporting}
+                            onClick={handleFetchYoutubePlaylist}
+                            className="px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-black rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            {ytImporting ? (
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Download className="w-4 h-4" />
+                            )}
+                            <span>جلب الفيديوهات 📑</span>
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-gray-400">تأكد من أن قائمة التشغيل عامة (Public) أو غير مدرجة (Unlisted) لتتمكن خدمتنا الآمنة من قراءتها.</p>
+                      </div>
+                    )}
+
+                    {ytImportMode === "urls_list" && (
+                      <div className="space-y-3">
+                        <label className="block text-xs font-bold text-gray-700">لصق مجموعة روابط يوتيوب (رابط واحد في كل سطر)</label>
+                        <textarea
+                          rows={4}
+                          placeholder="مثال:
+https://www.youtube.com/watch?v=VideoID1
+https://www.youtube.com/watch?v=VideoID2
+https://www.youtube.com/watch?v=VideoID3"
+                          value={ytUrlsListInput}
+                          onChange={(e) => setYtUrlsListInput(e.target.value)}
+                          className="w-full p-3 bg-slate-50 border border-gray-200 rounded-xl text-xs text-left font-mono outline-hidden focus:border-red-500"
+                          dir="ltr"
+                        />
+                        <div className="text-left">
+                          <button
+                            type="button"
+                            disabled={ytImporting}
+                            onClick={handleParseUrlsList}
+                            className="px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-black rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            {ytImporting ? (
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Zap className="w-4 h-4 text-amber-400" />
+                            )}
+                            <span>استخراج وتجهيز الروابط 🚀</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Previewing fetched videos */}
+                  {ytImportedPreviewVideos.length > 0 && (
+                    <div className="space-y-4 pt-4 border-t border-red-100/50 animate-fadeIn">
+                      <div className="flex justify-between items-center">
+                        <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                          <BookOpen className="w-4 h-4 text-red-600" />
+                          <span>قائمة الفيديوهات الجاهزة للاستيراد ({ytImportedPreviewVideos.length})</span>
+                        </h4>
+                        <div className="flex gap-2 text-[10px]">
+                          <button
+                            type="button"
+                            onClick={() => setYtSelectedVideoIds(ytImportedPreviewVideos.map(v => v.id))}
+                            className="text-red-600 hover:underline cursor-pointer font-black"
+                          >
+                            تحديد الكل ☑️
+                          </button>
+                          <span className="text-gray-300">|</span>
+                          <button
+                            type="button"
+                            onClick={() => setYtSelectedVideoIds([])}
+                            className="text-slate-500 hover:underline cursor-pointer font-black"
+                          >
+                            إلغاء التحديد ✖️
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+                        {ytImportedPreviewVideos.map((video) => {
+                          const isSelected = ytSelectedVideoIds.includes(video.id);
+                          return (
+                            <div
+                              key={video.id}
+                              className={`p-3 rounded-xl border transition-all flex flex-col sm:flex-row gap-3 items-start sm:items-center ${
+                                isSelected 
+                                  ? "bg-red-50/40 border-red-200" 
+                                  : "bg-white border-gray-150 opacity-80"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setYtSelectedVideoIds(prev => [...prev, video.id]);
+                                  } else {
+                                    setYtSelectedVideoIds(prev => prev.filter(id => id !== video.id));
+                                  }
+                                }}
+                                className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500 cursor-pointer self-center"
+                              />
+
+                              <div className="w-20 h-12 bg-slate-100 rounded-lg overflow-hidden relative shrink-0">
+                                <img
+                                  src={video.thumbnailUrl}
+                                  alt="غلاف الفيديو"
+                                  className="w-full h-full object-cover"
+                                  referrerPolicy="no-referrer"
+                                  onError={(e) => {
+                                    e.currentTarget.src = "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=200";
+                                  }}
+                                />
+                                <span className="absolute bottom-0.5 left-0.5 bg-black/75 text-[9px] font-mono text-white px-1 py-0.2 rounded">
+                                  {video.duration}
+                                </span>
+                              </div>
+
+                              <div className="flex-1 space-y-2 w-full text-right">
+                                <div className="space-y-1">
+                                  <label className="block text-[10px] font-bold text-gray-400">اسم الدرس / المحاضرة</label>
+                                  <input
+                                    type="text"
+                                    value={video.title}
+                                    onChange={(e) => {
+                                      const newTitle = e.target.value;
+                                      setYtImportedPreviewVideos(prev =>
+                                        prev.map(v => v.id === video.id ? { ...v, title: newTitle } : v)
+                                      );
+                                    }}
+                                    className="w-full px-2 py-1 bg-slate-50 border border-gray-200 rounded-lg text-xs font-black text-slate-800"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="w-full sm:w-auto flex justify-between sm:flex-col items-end gap-1 shrink-0 text-left">
+                                <span className="text-[10px] font-mono text-slate-400" dir="ltr">
+                                  ID: {video.id}
+                                </span>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={video.duration}
+                                    placeholder="المدة"
+                                    onChange={(e) => {
+                                      const newDur = e.target.value;
+                                      setYtImportedPreviewVideos(prev =>
+                                        prev.map(v => v.id === video.id ? { ...v, duration: newDur } : v)
+                                      );
+                                    }}
+                                    className="w-20 px-1 py-0.5 text-center bg-slate-50 border border-gray-200 rounded-md text-[10px] font-bold"
+                                  />
+                                  <a
+                                    href={`https://youtube.com/watch?v=${video.id}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-[10px] font-bold text-red-600 hover:underline flex items-center gap-0.5"
+                                  >
+                                    <Play className="w-3 h-3" />
+                                    <span>مشاهدة</span>
+                                  </a>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="pt-2 flex flex-col sm:flex-row gap-3 items-center justify-between border-t border-red-100/40">
+                        <p className="text-[10px] text-gray-500 font-bold">
+                          تم تحديد <span className="text-red-600 font-extrabold">{ytSelectedVideoIds.length}</span> من أصل <span className="text-slate-800 font-extrabold">{ytImportedPreviewVideos.length}</span> فيديو جاهز للاستيراد.
+                        </p>
+                        
+                        <button
+                          type="button"
+                          disabled={ytImporting || !selectedCourseId || ytSelectedVideoIds.length === 0}
+                          onClick={handleExecuteYoutubeImport}
+                          className="w-full sm:w-auto px-8 py-3.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-black rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer font-sans"
+                        >
+                          <Zap className="w-4 h-4 text-amber-300 animate-pulse" />
+                          <span>استيراد ونشر المحاضرات المحددة دفعة واحدة 📥</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>

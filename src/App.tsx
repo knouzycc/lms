@@ -14,7 +14,7 @@ import StudentDashboard from "./components/StudentDashboard";
 import AdminDashboard from "./components/AdminDashboard";
 import CourseDetailModal from "./components/CourseDetailModal";
 import { INITIAL_COURSES } from "./data";
-import { Course, User as UserType, PendingPayment, GradeLevel, CourseCategory, Teacher, ChargeCode, VideoSettings, PlatformSettings, AdCampaign, AppNotification, ActivityLog, Quiz, BookStoreItem, BookOrder } from "./types";
+import { Course, User as UserType, PendingPayment, GradeLevel, CourseCategory, Teacher, ChargeCode, VideoSettings, PlatformSettings, AdCampaign, AppNotification, ActivityLog, Quiz, BookStoreItem, BookOrder, SupportTicket } from "./types";
 import {
   fetchCourses,
   saveCourseInFirestore,
@@ -42,7 +42,8 @@ import {
   saveBookStoreItemInFirestore,
   deleteBookStoreItemFromFirestore,
   fetchBookOrders,
-  saveBookOrderInFirestore
+  saveBookOrderInFirestore,
+  saveSupportTicketInFirestore
 } from "./lib/dbService";
 
 // Standard seed data for demonstration/mock persistence
@@ -83,7 +84,17 @@ const DEFAULT_PENDING_PAYMENTS: PendingPayment[] = [
 
 export default function App() {
   const [courses, setCourses] = React.useState<Course[]>([]);
-  const [user, setUser] = React.useState<UserType | null>(null);
+  const [user, setUser] = React.useState<UserType | null>(() => {
+    const saved = localStorage.getItem("math_academy_user");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
   const [pendingPayments, setPendingPayments] = React.useState<PendingPayment[]>([]);
   const [studentsList, setStudentsList] = React.useState<{ name: string; phone: string; enrolledCount: number; balance: number }[]>([]);
   const [teachersList, setTeachersList] = React.useState<Teacher[]>([]);
@@ -120,6 +131,7 @@ export default function App() {
   const [selectedCourseForDetail, setSelectedCourseForDetail] = React.useState<Course | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = React.useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = React.useState(false);
+  const [isSubmittingInquiry, setIsSubmittingInquiry] = React.useState(false);
 
   // Dark Mode State
   const [darkMode, setDarkMode] = React.useState<boolean>(() => {
@@ -220,51 +232,14 @@ export default function App() {
     loadData();
   }, []);
 
-  // Sync state changes to LocalStorage and Firestore
-  React.useEffect(() => {
-    localStorage.setItem("math_academy_courses", JSON.stringify(courses));
-  }, [courses]);
-
+  // Sync active user session to LocalStorage
   React.useEffect(() => {
     if (user) {
       localStorage.setItem("math_academy_user", JSON.stringify(user));
-      saveUserInFirestore(user);
     } else {
       localStorage.removeItem("math_academy_user");
     }
   }, [user]);
-
-  React.useEffect(() => {
-    localStorage.setItem("math_academy_payments", JSON.stringify(pendingPayments));
-  }, [pendingPayments]);
-
-  React.useEffect(() => {
-    localStorage.setItem("math_academy_students", JSON.stringify(studentsList));
-  }, [studentsList]);
-
-  React.useEffect(() => {
-    localStorage.setItem("math_academy_teachers", JSON.stringify(teachersList));
-  }, [teachersList]);
-
-  React.useEffect(() => {
-    localStorage.setItem("math_academy_charge_codes", JSON.stringify(chargeCodes));
-  }, [chargeCodes]);
-
-  React.useEffect(() => {
-    localStorage.setItem("math_academy_video_settings", JSON.stringify(videoSettings));
-  }, [videoSettings]);
-
-  React.useEffect(() => {
-    localStorage.setItem("math_academy_platform_settings", JSON.stringify(platformSettings));
-  }, [platformSettings]);
-
-  React.useEffect(() => {
-    localStorage.setItem("math_academy_notifications", JSON.stringify(notifications));
-  }, [notifications]);
-
-  React.useEffect(() => {
-    localStorage.setItem("math_academy_activity_logs", JSON.stringify(activityLogs));
-  }, [activityLogs]);
 
   const addActivityLog = async (
     userId: string,
@@ -609,6 +584,65 @@ export default function App() {
       "all", // broadcast to enrolled students, filtered in client
       `إضافة محاضرة جديدة: ${lectureTitle} 📚`,
       `تمت إضافة محاضرة جديدة في كورس (${course.title}): "${lectureTitle}". سارع بمشاهدتها الآن!`,
+      "new_content",
+      courseId,
+      course.title
+    );
+  };
+
+  // Add multiple lectures (batch YouTube import) and notify enrolled students
+  const handleAddLecturesToCourse = async (
+    courseId: string,
+    newLecturesData: { title: string; duration: string; videoUrl: string; pdfUrl: string }[]
+  ) => {
+    const course = courses.find((c) => c.id === courseId);
+    if (!course) return;
+
+    const newLectures = newLecturesData.map((data, index) => ({
+      id: "lect-" + (Date.now() + index),
+      courseId,
+      title: data.title,
+      duration: data.duration || "1 ساعة",
+      videoUrl: data.videoUrl || "https://www.w3schools.com/html/mov_bbb.mp4",
+      pdfUrl: data.pdfUrl || "مذكرة الشرح الجديدة.pdf",
+    }));
+
+    let updatedCourseObj: Course | null = null;
+    setCourses((prevCourses) => {
+      const updated = prevCourses.map((c) => {
+        if (c.id === courseId) {
+          const u = {
+            ...c,
+            lecturesCount: c.lecturesCount + newLectures.length,
+            lectures: [...c.lectures, ...newLectures],
+          };
+          updatedCourseObj = u;
+          return u;
+        }
+        return c;
+      });
+      return updated;
+    });
+
+    if (selectedCourseForDetail && selectedCourseForDetail.id === courseId) {
+      setSelectedCourseForDetail((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          lecturesCount: prev.lecturesCount + newLectures.length,
+          lectures: [...prev.lectures, ...newLectures],
+        };
+      });
+    }
+
+    if (updatedCourseObj) {
+      await saveCourseInFirestore(updatedCourseObj);
+    }
+
+    addNotification(
+      "all",
+      `إضافة ${newLectures.length} محاضرات جديدة دفعة واحدة! 📚`,
+      `تمت إضافة ${newLectures.length} محاضرات جديدة في كورس (${course.title}). شاهدها الآن!`,
       "new_content",
       courseId,
       course.title
@@ -1344,21 +1378,40 @@ export default function App() {
 
               <div className="bg-white border border-gray-150 p-6 rounded-2xl shadow-xs space-y-4">
                 <h3 className="text-lg font-black text-gray-900 border-b border-gray-100 pb-2">أرسل لنا استفسارك مباشرة ✉️</h3>
-                <form onSubmit={(e) => {
+                <form onSubmit={async (e) => {
                   e.preventDefault();
+                  if (isSubmittingInquiry) return;
+                  setIsSubmittingInquiry(true);
                   const form = e.currentTarget;
                   const formData = new FormData(form);
-                  const fullName = formData.get("fullName") || "";
-                  const phone = formData.get("phone") || "";
-                  const message = formData.get("message") || "";
+                  const fullName = (formData.get("fullName") || "") as string;
+                  const phone = (formData.get("phone") || "") as string;
+                  const message = (formData.get("message") || "") as string;
                   
-                  const emailSubject = `استفسار من الطالب: ${fullName}`;
-                  const emailBody = `الاسم بالكامل: ${fullName}\nرقم الهاتف: ${phone}\n\nالرسالة:\n${message}`;
-                  
-                  window.location.href = `mailto:konouz55@gmail.com?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
-                  
-                  alert("تم تجهيز رسالتك للإرسال عبر البريد الإلكتروني! 🎉");
-                  form.reset();
+                  try {
+                    const ticketId = "ticket_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+                    const newTicket: SupportTicket = {
+                      id: ticketId,
+                      userId: user?.id || "guest",
+                      userName: fullName,
+                      userPhone: phone,
+                      title: "استفسار مباشر من الصفحة الرئيسية",
+                      message: message,
+                      category: "technical",
+                      status: "open",
+                      createdAt: new Date().toISOString(),
+                      replies: []
+                    };
+                    
+                    await saveSupportTicketInFirestore(newTicket);
+                    alert("تم إرسال استفسارك مباشرة بنجاح إلى قسم الدعم الفني والشكاوى! 🎉 سيتم مراجعته والرد عليك قريباً.");
+                    form.reset();
+                  } catch (error) {
+                    console.error("Error submitting inquiry:", error);
+                    alert("حدث خطأ أثناء إرسال الاستفسار. يرجى المحاولة مرة أخرى.");
+                  } finally {
+                    setIsSubmittingInquiry(false);
+                  }
                 }} className="space-y-4">
                   <div>
                     <label className="text-xs font-bold text-gray-700 block mb-1">الاسم بالكامل:</label>
@@ -1372,8 +1425,8 @@ export default function App() {
                     <label className="text-xs font-bold text-gray-700 block mb-1">موضوع الاستفسار:</label>
                     <textarea name="message" required rows={4} className="w-full px-3 py-2 border border-gray-250 rounded-xl text-xs" placeholder="اكتب تفاصيل استفسارك أو المشكلة التي تواجهها هنا..." />
                   </div>
-                  <button type="submit" className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-black rounded-xl text-xs transition-colors cursor-pointer">
-                    إرسال الاستفسار الآن 🚀
+                  <button type="submit" disabled={isSubmittingInquiry} className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-black rounded-xl text-xs transition-colors cursor-pointer">
+                    {isSubmittingInquiry ? "جاري الإرسال... 🚀" : "إرسال الاستفسار الآن 🚀"}
                   </button>
                 </form>
               </div>
@@ -1428,6 +1481,7 @@ export default function App() {
             platformSettings={platformSettings}
             onUpdatePlatformSettings={handleUpdatePlatformSettings}
             onAddLectureToCourse={handleAddLectureToCourse}
+            onAddLecturesToCourse={handleAddLecturesToCourse}
             onEnrollStudentInCourse={handleEnrollStudentInCourse}
             onUnenrollStudentFromCourse={handleUnenrollStudentFromCourse}
             books={books}
