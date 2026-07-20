@@ -31,6 +31,7 @@ import {
   BookMarked,
   MapPin,
   AlertTriangle,
+  Compass,
 } from "lucide-react";
 import { Course, Lecture, Quiz, Question, User, PendingPayment, VideoSettings, PlatformSettings, AdCampaign, ActivityLog, SupportTicket, TicketReply, CourseCategory, BookStoreItem, BookOrder } from "../types";
 import CertificateModal from "./CertificateModal";
@@ -170,6 +171,26 @@ const getCategoryLabel = (cat: CourseCategory) => {
   }
 };
 
+function getYoutubeEmbedUrl(url: string): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (trimmed.length === 11 && /^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
+    return `https://www.youtube.com/embed/${trimmed}?autoplay=0&rel=0`;
+  }
+  
+  if (trimmed.includes("youtube.com/embed/")) {
+    return trimmed;
+  }
+
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|shorts\/|live\/)([^#\&\?]*).*/;
+  const match = trimmed.match(regExp);
+  const videoId = (match && match[2].length === 11) ? match[2] : null;
+  if (videoId) {
+    return `https://www.youtube.com/embed/${videoId}?autoplay=0&rel=0`;
+  }
+  return null;
+}
+
 interface StudentDashboardProps {
   user: User;
   courses: Course[];
@@ -185,6 +206,8 @@ interface StudentDashboardProps {
   books?: BookStoreItem[];
   bookOrders?: BookOrder[];
   onBuyBook?: (bookId: string, governorate: string, address: string) => Promise<{ success: boolean; message: string }>;
+  activeTab?: "courses" | "reports" | "tickets" | "profile" | "store";
+  onChangeActiveTab?: (tab: "courses" | "reports" | "tickets" | "profile" | "store") => void;
 }
 
 export default function StudentDashboard({
@@ -202,11 +225,15 @@ export default function StudentDashboard({
   books = [],
   bookOrders = [],
   onBuyBook,
+  activeTab: propActiveTab,
+  onChangeActiveTab,
 }: StudentDashboardProps) {
   const [activeCourse, setActiveCourse] = React.useState<Course | null>(null);
   const [activeLecture, setActiveLecture] = React.useState<Lecture | null>(null);
   const [viewingMode, setViewingMode] = React.useState<"video" | "quiz" | "liveQuiz">("video");
-  const [activeTab, setActiveTab] = React.useState<"courses" | "reports" | "tickets" | "profile" | "store">("courses");
+  const [localActiveTab, setLocalActiveTab] = React.useState<"courses" | "reports" | "tickets" | "profile" | "store">("courses");
+  const activeTab = propActiveTab !== undefined ? propActiveTab : localActiveTab;
+  const setActiveTab = onChangeActiveTab !== undefined ? onChangeActiveTab : setLocalActiveTab;
   const [selectedCategory, setSelectedCategory] = React.useState<CourseCategory | "all">("all");
   
   // Live Quizzes States
@@ -1053,68 +1080,7 @@ export default function StudentDashboard({
         </div>
       </section>
 
-      {/* Student Sub-Tabs (only when not in active classroom) */}
-      {!activeCourse && (
-        <div className="flex border-b border-gray-150 gap-4 overflow-x-auto pb-1" id="student-tabs-header">
-          <button
-            onClick={() => setActiveTab("courses")}
-            className={`pb-3 text-sm font-extrabold transition-all border-b-2 px-2 cursor-pointer flex-shrink-0 flex items-center gap-1.5 ${
-              activeTab === "courses"
-                ? "border-red-600 text-red-600"
-                : "border-transparent text-gray-500 hover:text-gray-800"
-            }`}
-          >
-            <BookOpen className="w-4 h-4" />
-            <span>كورساتي ومحاضراتي 📚</span>
-          </button>
-          <button
-            onClick={() => setActiveTab("reports")}
-            className={`pb-3 text-sm font-extrabold transition-all border-b-2 px-2 cursor-pointer flex-shrink-0 flex items-center gap-1.5 ${
-              activeTab === "reports"
-                ? "border-red-600 text-red-600"
-                : "border-transparent text-gray-500 hover:text-gray-800"
-            }`}
-          >
-            <BarChart2 className="w-4 h-4" />
-            <span>التقارير وسجل الأنشطة 📊</span>
-          </button>
-          <button
-            onClick={() => setActiveTab("tickets")}
-            className={`pb-3 text-sm font-extrabold transition-all border-b-2 px-2 cursor-pointer flex-shrink-0 flex items-center gap-1.5 ${
-              activeTab === "tickets"
-                ? "border-red-600 text-red-600"
-                : "border-transparent text-gray-500 hover:text-gray-800"
-            }`}
-            id="student-tickets-tab-trigger"
-          >
-            <LifeBuoy className="w-4 h-4" />
-            <span>الدعم الفني والشكاوى 🛠️</span>
-          </button>
-          <button
-            onClick={() => setActiveTab("store")}
-            className={`pb-3 text-sm font-extrabold transition-all border-b-2 px-2 cursor-pointer flex-shrink-0 flex items-center gap-1.5 ${
-              activeTab === "store"
-                ? "border-red-600 text-red-600"
-                : "border-transparent text-gray-500 hover:text-gray-800"
-            }`}
-          >
-            <ShoppingBag className="w-4 h-4" />
-            <span>متجر المذكرات والكتب 📖</span>
-          </button>
-          <button
-            onClick={() => setActiveTab("profile")}
-            className={`pb-3 text-sm font-extrabold transition-all border-b-2 px-2 cursor-pointer flex-shrink-0 flex items-center gap-1.5 ${
-              activeTab === "profile"
-                ? "border-red-600 text-red-600"
-                : "border-transparent text-gray-500 hover:text-gray-800"
-            }`}
-            id="student-profile-tab-trigger"
-          >
-            <UserCheck className="w-4 h-4" />
-            <span>الملف الشخصي 👤</span>
-          </button>
-        </div>
-      )}
+
 
       {/* Main Workspace (Course Active View or Courses List) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -1298,13 +1264,23 @@ export default function StudentDashboard({
                             className="relative aspect-video bg-gray-950 flex items-center justify-center select-none overflow-hidden"
                             onContextMenu={videoSettings?.enableRightClickBlock ? (e) => e.preventDefault() : undefined}
                           >
-                            <video
-                              src={activeLecture.videoUrl}
-                              controls
-                              controlsList={videoSettings?.enableRightClickBlock ? "nodownload" : undefined}
-                              className="w-full h-full object-contain relative z-10 pointer-events-auto"
-                              poster="https://images.unsplash.com/photo-1509228468518-180dd4864904?auto=format&fit=crop&q=80&w=800"
-                            />
+                            {getYoutubeEmbedUrl(activeLecture.videoUrl) ? (
+                              <iframe
+                                src={getYoutubeEmbedUrl(activeLecture.videoUrl) || ""}
+                                title={activeLecture.title}
+                                className="w-full h-full object-contain relative z-10 pointer-events-auto border-0 aspect-video"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                allowFullScreen
+                              />
+                            ) : (
+                              <video
+                                src={activeLecture.videoUrl}
+                                controls
+                                controlsList={videoSettings?.enableRightClickBlock ? "nodownload" : undefined}
+                                className="w-full h-full object-contain relative z-10 pointer-events-auto"
+                                poster="https://images.unsplash.com/photo-1509228468518-180dd4864904?auto=format&fit=crop&q=80&w=800"
+                              />
+                            )}
 
                             {/* DRM BRAND LOGO OVERLAY */}
                             {videoSettings?.logoUrl && (
@@ -2015,9 +1991,100 @@ export default function StudentDashboard({
               </div>
             </div>
           </div>
-        ) : activeTab === "courses" ? (
-          /* Normal Dashboard Panel listing enrolled courses and wallet activities */
+        ) : (
+          /* Normal Dashboard with Sidebar + Content */
           <>
+            {/* Sidebar Column (Renders on the right in RTL desktop, stacks on top on mobile) */}
+            <div className="lg:col-span-3 space-y-6" id="dashboard-sidebar-column">
+              <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-xs space-y-4 lg:sticky lg:top-24">
+                <div className="border-b border-gray-50 pb-3 flex items-center justify-between">
+                  <h3 className="text-xs font-black text-gray-800 flex items-center gap-1.5">
+                    <Compass className="w-4 h-4 text-red-600" />
+                    <span>أقسام لوحة التحكم 🧭</span>
+                  </h3>
+                </div>
+
+                <div className="flex flex-row lg:flex-col gap-2 overflow-x-auto lg:overflow-visible pb-2 lg:pb-0 scrollbar-none scroll-smooth" id="student-sidebar-menu">
+                  <button
+                    onClick={() => setActiveTab("courses")}
+                    className={`py-2.5 px-4 rounded-2xl text-xs font-extrabold transition-all text-right flex items-center gap-2 group cursor-pointer whitespace-nowrap lg:w-full border-r-4 ${
+                      activeTab === "courses"
+                        ? "bg-red-50 text-red-600 border-red-600 font-black"
+                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 border-transparent"
+                    }`}
+                  >
+                    <BookOpen className={`w-4 h-4 shrink-0 ${activeTab === "courses" ? "text-red-600" : "text-gray-400 group-hover:text-gray-600"}`} />
+                    <span>كورساتي ومحاضراتي 📚</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab("reports")}
+                    className={`py-2.5 px-4 rounded-2xl text-xs font-extrabold transition-all text-right flex items-center gap-2 group cursor-pointer whitespace-nowrap lg:w-full border-r-4 ${
+                      activeTab === "reports"
+                        ? "bg-red-50 text-red-600 border-red-600 font-black"
+                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 border-transparent"
+                    }`}
+                  >
+                    <BarChart2 className={`w-4 h-4 shrink-0 ${activeTab === "reports" ? "text-red-600" : "text-gray-400 group-hover:text-gray-600"}`} />
+                    <span>التقارير وسجل الأنشطة 📊</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab("tickets")}
+                    className={`py-2.5 px-4 rounded-2xl text-xs font-extrabold transition-all text-right flex items-center gap-2 group cursor-pointer whitespace-nowrap lg:w-full border-r-4 ${
+                      activeTab === "tickets"
+                        ? "bg-red-50 text-red-600 border-red-600 font-black"
+                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 border-transparent"
+                    }`}
+                    id="student-tickets-tab-trigger-sidebar"
+                  >
+                    <LifeBuoy className={`w-4 h-4 shrink-0 ${activeTab === "tickets" ? "text-red-600" : "text-gray-400 group-hover:text-gray-600"}`} />
+                    <span>الدعم الفني والشكاوى 🛠️</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab("store")}
+                    className={`py-2.5 px-4 rounded-2xl text-xs font-extrabold transition-all text-right flex items-center gap-2 group cursor-pointer whitespace-nowrap lg:w-full border-r-4 ${
+                      activeTab === "store"
+                        ? "bg-red-50 text-red-600 border-red-600 font-black"
+                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 border-transparent"
+                    }`}
+                  >
+                    <ShoppingBag className={`w-4 h-4 shrink-0 ${activeTab === "store" ? "text-red-600" : "text-gray-400 group-hover:text-gray-600"}`} />
+                    <span>متجر المذكرات والكتب 📖</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab("profile")}
+                    className={`py-2.5 px-4 rounded-2xl text-xs font-extrabold transition-all text-right flex items-center gap-2 group cursor-pointer whitespace-nowrap lg:w-full border-r-4 ${
+                      activeTab === "profile"
+                        ? "bg-red-50 text-red-600 border-red-600 font-black"
+                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 border-transparent"
+                    }`}
+                    id="student-profile-tab-trigger-sidebar"
+                  >
+                    <UserCheck className={`w-4 h-4 shrink-0 ${activeTab === "profile" ? "text-red-600" : "text-gray-400 group-hover:text-gray-600"}`} />
+                    <span>الملف الشخصي 👤</span>
+                  </button>
+                </div>
+
+                {/* Sidebar Ad if any */}
+                {studentSidebarAd && (
+                  <div className="hidden lg:block pt-3 border-t border-gray-50">
+                    <div className="flex items-center justify-between pb-2">
+                      <span className="text-[10px] font-black text-slate-800">إعلان ممول 📢</span>
+                    </div>
+                    <AdBanner ad={studentSidebarAd} />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Content Column (Lenders remaining width) */}
+            <div className="lg:col-span-9 space-y-8" id="dashboard-content-column">
+              {activeTab === "courses" ? (
+                /* Normal Dashboard Panel listing enrolled courses and wallet activities */
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-fade-in">
             {/* Academic Charts Dashboard Widget */}
             {enrolledCourses.length > 0 && (
               <div className="lg:col-span-12 bg-white border border-gray-100 rounded-3xl p-6 shadow-xs space-y-4">
@@ -2135,9 +2202,10 @@ export default function StudentDashboard({
                 {filteredEnrolledCourses.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     {filteredEnrolledCourses.map((course) => (
-                      <div
+                      <motion.div
                         key={course.id}
-                        className="bg-gray-50/50 border border-gray-100 rounded-2xl overflow-hidden flex flex-col justify-between"
+                        whileHover={{ y: -4, scale: 1.01, transition: { duration: 0.2 } }}
+                        className="bg-white border border-gray-100 rounded-2xl overflow-hidden flex flex-col justify-between shadow-xs hover:shadow-md hover:border-red-100 transition-all"
                       >
                         <div className="p-5 space-y-3">
                           <span className="text-[10px] bg-red-50 text-red-600 font-extrabold px-2 py-0.5 rounded-md">
@@ -2182,7 +2250,7 @@ export default function StudentDashboard({
                             </button>
                           </div>
                         </div>
-                      </div>
+                      </motion.div>
                     ))}
                   </div>
                 ) : enrolledCourses.length > 0 ? (
@@ -2223,9 +2291,10 @@ export default function StudentDashboard({
                   {filteredOtherCourses.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                       {filteredOtherCourses.map((course) => (
-                        <div
+                        <motion.div
                           key={course.id}
-                          className="bg-gray-50/50 border border-gray-100 rounded-2xl overflow-hidden flex flex-col justify-between"
+                          whileHover={{ y: -4, scale: 1.01, transition: { duration: 0.2 } }}
+                          className="bg-white border border-gray-100 rounded-2xl overflow-hidden flex flex-col justify-between shadow-xs hover:shadow-md hover:border-red-100 transition-all"
                         >
                           <div className="p-5 space-y-3">
                             <span className="text-[10px] bg-red-50 text-red-600 font-extrabold px-2 py-0.5 rounded-md">
@@ -2257,7 +2326,7 @@ export default function StudentDashboard({
                               تفاصيل وتفعيل 🚀
                             </button>
                           </div>
-                        </div>
+                        </motion.div>
                       ))}
                     </div>
                   ) : (
@@ -2378,11 +2447,11 @@ export default function StudentDashboard({
                   <AdBanner ad={studentSidebarAd} />
                 </div>
               )}
-            </div>
-          </>
-        ) : activeTab === "reports" ? (
-          /* Reports and Activity Log Panel */
-          <div className="lg:col-span-12 space-y-8 animate-fade-in" id="reports-activity-container">
+                </div>
+              </div>
+              ) : activeTab === "reports" ? (
+                /* Reports and Activity Log Panel */
+                <div className="space-y-8 animate-fade-in" id="reports-activity-container">
             {/* Header explaining Reports */}
             <div className="bg-gradient-to-r from-red-600 to-red-800 text-white rounded-3xl p-6 sm:p-8 shadow-md text-right space-y-2">
               <h3 className="text-xl sm:text-2xl font-black">تقارير المتابعة الأكاديمية وسجل الحركة 📈</h3>
@@ -2746,7 +2815,7 @@ export default function StudentDashboard({
           </div>
         ) : activeTab === "store" ? (
           /* E-Book & Shipping Store Panel */
-          <div className="lg:col-span-12 space-y-6 animate-fade-in text-right font-sans" id="student-book-store-container">
+          <div className="space-y-6 animate-fade-in text-right font-sans" id="student-book-store-container">
             <div className="bg-gradient-to-r from-red-600 to-red-850 text-white rounded-3xl p-6 sm:p-8 shadow-md flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div className="space-y-2">
                 <h3 className="text-xl sm:text-2xl font-black">متجر الكتب المطبوعة والمذكرات الورقية 📚🚚</h3>
@@ -2997,7 +3066,7 @@ export default function StudentDashboard({
           </div>
         ) : activeTab === "tickets" ? (
           /* Support Tickets Panel */
-          <div className="lg:col-span-12 space-y-6 animate-fade-in text-right font-sans" id="student-tickets-container">
+          <div className="space-y-6 animate-fade-in text-right font-sans" id="student-tickets-container">
             <div className="bg-gradient-to-r from-red-600 to-red-800 text-white rounded-3xl p-6 sm:p-8 shadow-md space-y-2">
               <h3 className="text-xl sm:text-2xl font-black">مركز الدعم الفني والتحصيل والأكاديمي 🛠️</h3>
               <p className="text-xs sm:text-sm text-red-100 max-w-2xl leading-relaxed">
@@ -3203,11 +3272,14 @@ export default function StudentDashboard({
               </div>
             </div>
           </div>
-        ) : (
-          /* Student Profile Panel */
-          <div className="lg:col-span-12 space-y-6 animate-fade-in" id="student-profile-container">
-            <StudentProfile user={user} onUpdateProfile={onUpdateProfile || (() => {})} />
-          </div>
+              ) : (
+                /* Student Profile Panel */
+                <div className="space-y-6 animate-fade-in" id="student-profile-container">
+                  <StudentProfile user={user} onUpdateProfile={onUpdateProfile || (() => {})} />
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
 

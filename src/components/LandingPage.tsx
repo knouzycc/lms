@@ -377,6 +377,7 @@ export default function LandingPage({
                       layout
                       initial={{ opacity: 0, scale: 0.98 }}
                       animate={{ opacity: 1, scale: 1 }}
+                      whileHover={{ y: -6, scale: 1.02, transition: { duration: 0.2 } }}
                       transition={{ duration: 0.3 }}
                       className="bg-white border border-gray-100 rounded-3xl overflow-hidden shadow-xs hover:shadow-lg hover:border-red-100 transition-all flex flex-col justify-between"
                     >
@@ -401,9 +402,17 @@ export default function LandingPage({
 
                         {/* Content */}
                         <div className="p-6 space-y-4">
-                          <h3 className="text-lg font-bold text-gray-900 line-clamp-2 h-14 leading-snug">
-                            {course.title}
-                          </h3>
+                          <div>
+                            <h3 className="text-lg font-bold text-gray-900 line-clamp-2 h-14 leading-snug">
+                              {course.title}
+                            </h3>
+                            {course.teacherName && (
+                              <p className="text-xs text-red-600 font-extrabold flex items-center gap-1 mt-1">
+                                <span>👨‍🏫 الأستاذ:</span>
+                                <span className="text-gray-700 font-black">{course.teacherName}</span>
+                              </p>
+                            )}
+                          </div>
                           <p className="text-sm text-gray-500 line-clamp-3 h-15 leading-relaxed">
                             {course.description}
                           </p>

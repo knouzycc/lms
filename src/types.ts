@@ -82,6 +82,7 @@ export interface Course {
   lectures: Lecture[];
   rating?: number; // average rating e.g., 4.8
   reviews?: Review[];
+  teacherName?: string;
 }
 
 export interface Review {

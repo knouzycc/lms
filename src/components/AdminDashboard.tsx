@@ -121,6 +121,8 @@ interface AdminDashboardProps {
   onUpdateBookOrder?: (orderId: string, status: "pending" | "shipped" | "delivered" | "cancelled", shippingCompany?: string, trackingNumber?: string) => void;
   onAddBookStoreItem?: (newBook: BookStoreItem) => void;
   onDeleteBookStoreItem?: (bookId: string) => void;
+  activeTab?: "payments" | "teachers" | "students" | "codes" | "video" | "settings" | "tickets" | "course-students" | "books";
+  onChangeActiveTab?: (tab: "payments" | "teachers" | "students" | "codes" | "video" | "settings" | "tickets" | "course-students" | "books") => void;
 }
 
 export default function AdminDashboard({
@@ -156,11 +158,15 @@ export default function AdminDashboard({
   onUpdateBookOrder,
   onAddBookStoreItem,
   onDeleteBookStoreItem,
+  activeTab: propActiveTab,
+  onChangeActiveTab,
 }: AdminDashboardProps) {
   // Navigation tabs - Default to teachers for Teacher since financials/payments/settings are Admin-only
-  const [activeTab, setActiveTab] = React.useState<"payments" | "teachers" | "students" | "codes" | "video" | "settings" | "tickets" | "course-students" | "books">(
+  const [localActiveTab, setLocalActiveTab] = React.useState<"payments" | "teachers" | "students" | "codes" | "video" | "settings" | "tickets" | "course-students" | "books">(
     user?.role === "teacher" ? "teachers" : "students"
   );
+  const activeTab = propActiveTab !== undefined ? propActiveTab : localActiveTab;
+  const setActiveTab = onChangeActiveTab !== undefined ? onChangeActiveTab : setLocalActiveTab;
   const [studentsSubTab, setStudentsSubTab] = React.useState<"list" | "payments" | "codes">("list");
 
   // Database maintenance states
@@ -540,6 +546,7 @@ export default function AdminDashboard({
   const [price, setPrice] = React.useState(120);
   const [image, setImage] = React.useState("");
   const [successMsg, setSuccessMsg] = React.useState("");
+  const [courseTeacherName, setCourseTeacherName] = React.useState("");
 
   // State for adding a teacher
   const [teacherName, setTeacherName] = React.useState("");
@@ -681,6 +688,7 @@ export default function AdminDashboard({
   const [editCoursePrice, setEditCoursePrice] = React.useState(0);
   const [editCourseGrade, setEditCourseGrade] = React.useState<GradeLevel>(GradeLevel.THIRD);
   const [editCourseCategory, setEditCourseCategory] = React.useState<CourseCategory>(CourseCategory.MATH);
+  const [editCourseTeacherName, setEditCourseTeacherName] = React.useState("");
 
   const handleDeleteAd = (adId: string) => {
     setTempAds(prev => prev.filter(ad => ad.id !== adId));
@@ -887,6 +895,8 @@ export default function AdminDashboard({
     e.preventDefault();
     if (!title || !description) return;
 
+    const selectedTeacherName = user?.role === "teacher" ? user.name : (courseTeacherName || "مدير المنصة");
+
     const newCourse: Course = {
       id: "course-" + Date.now(),
       title,
@@ -898,6 +908,7 @@ export default function AdminDashboard({
       lecturesCount: 2,
       hoursCount: "3 ساعات الشرح",
       studentsCount: 0,
+      teacherName: selectedTeacherName,
       lectures: [
         {
           id: "lect-" + Date.now() + "-1",
@@ -931,6 +942,7 @@ export default function AdminDashboard({
     setDescription("");
     setImage("");
     setPrice(120);
+    setCourseTeacherName("");
 
     setTimeout(() => setSuccessMsg(""), 4000);
   };
@@ -1037,11 +1049,11 @@ export default function AdminDashboard({
         setYtSelectedVideoIds(videos.map(v => v.id));
         setYtImportSuccess(`🎉 تم بنجاح جلب عدد ${videos.length} فيديو من قائمة التشغيل! يمكنك اختيار الفيديوهات واستيرادها دفعة واحدة.`);
       } else {
-        setYtImportError("لم نتمكن من العثور على فيديوهات في هذه القائمة. يرجى التأكد من أن قائمة التشغيل عامة (Public) وليست خاصة، وجرب مجدداً.");
+        setYtImportError("❌ تعذر قراءة فيديوهات قائمة التشغيل تلقائياً بسبب قيود الحماية على يوتيوب أو لأن القائمة خاصة. بدلاً من ذلك، ننصحك بشدة بتبديل الوضع في الأعلى إلى 'لصق مجموعة روابط يوتيوب' ولصق روابط المحاضرات مباشرة لضمان استيرادها بنسبة 100%!");
       }
     } catch (err) {
       console.error(err);
-      setYtImportError("حدث خطأ أثناء جلب قائمة التشغيل عبر خدمة بروكسي CORS.");
+      setYtImportError("حدث خطأ أثناء جلب قائمة التشغيل عبر خدمة بروكسي CORS. يرجى تجربة وضع 'لصق مجموعة روابط يوتيوب' كبديل مضمون وسريع.");
     } finally {
       setYtImporting(false);
     }
@@ -1730,6 +1742,33 @@ export default function AdminDashboard({
                         </div>
                       </div>
 
+                      {user?.role === "admin" ? (
+                        <div className="space-y-1">
+                          <label className="block text-xs font-bold text-gray-600">المعلم المسؤول عن الكورس 👨‍🏫</label>
+                          <select
+                            value={courseTeacherName}
+                            onChange={(e) => setCourseTeacherName(e.target.value)}
+                            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-xs text-right outline-hidden focus:border-red-500 cursor-pointer"
+                          >
+                            <option value="">-- اختر المعلم المسؤول --</option>
+                            <option value="الأستاذ ياسر أبوستيت (معلم الرياضيات)">الأستاذ ياسر أبوستيت (معلم الرياضيات) 👨‍🏫</option>
+                            {teachers.map((t) => (
+                              <option key={t.id} value={t.name}>{t.name} ({t.subject}) 👨‍🏫</option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <label className="block text-xs font-bold text-gray-400">المعلم المسؤول (تلقائي)</label>
+                          <input
+                            type="text"
+                            disabled
+                            value={user?.name || ""}
+                            className="w-full px-3 py-2.5 bg-gray-100 border border-gray-200 rounded-xl text-xs text-right text-gray-500 cursor-not-allowed font-bold"
+                          />
+                        </div>
+                      )}
+
                       <button
                         type="submit"
                         className="w-full bg-red-600 hover:bg-red-700 text-white font-extrabold py-3 rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-1 cursor-pointer"
@@ -1783,6 +1822,7 @@ export default function AdminDashboard({
                             setEditCoursePrice(course.price);
                             setEditCourseGrade(course.grade);
                             setEditCourseCategory(course.category);
+                            setEditCourseTeacherName(course.teacherName || "الأستاذ ياسر أبوستيت (معلم الرياضيات)");
                           }}
                           className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-2 rounded-xl text-xs shadow-xs transition-colors cursor-pointer text-center"
                         >
@@ -1829,6 +1869,7 @@ export default function AdminDashboard({
                         price: editCoursePrice,
                         grade: editCourseGrade,
                         category: editCourseCategory,
+                        teacherName: editCourseTeacherName,
                       };
                       const res = await onUpdateCourse(updated);
                       if (res.success) {
@@ -1874,7 +1915,7 @@ export default function AdminDashboard({
                       />
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="space-y-1">
                         <label className="block text-xs font-bold text-gray-700">الصف الدراسي المستهدف</label>
                         <select
@@ -1907,6 +1948,28 @@ export default function AdminDashboard({
                             <option key={key} value={key}>{value}</option>
                           ))}
                         </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs font-bold text-gray-700">المعلم المسؤول 👨‍🏫</label>
+                        {user?.role === "admin" ? (
+                          <select
+                            value={editCourseTeacherName}
+                            onChange={(e) => setEditCourseTeacherName(e.target.value)}
+                            className="w-full px-3 py-2 bg-white border border-gray-250 rounded-xl text-xs"
+                          >
+                            <option value="الأستاذ ياسر أبوستيت (معلم الرياضيات)">الأستاذ ياسر أبوستيت (معلم الرياضيات)</option>
+                            {teachers.map((t) => (
+                              <option key={t.id} value={t.name}>{t.name} ({t.subject})</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            disabled
+                            value={editCourseTeacherName}
+                            className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-xl text-xs text-gray-500 cursor-not-allowed font-bold"
+                          />
+                        )}
                       </div>
                     </div>
 

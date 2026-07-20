@@ -107,7 +107,15 @@ export default function CourseDetailModal({
           {/* Body Content - Scrollable */}
           <div className="p-6 sm:p-8 space-y-6 overflow-y-auto flex-1">
             <div className="space-y-2">
-              <h4 className="text-sm font-extrabold text-gray-900">حول هذا الكورس التعليمي:</h4>
+              <div className="flex justify-between items-center">
+                <h4 className="text-sm font-extrabold text-gray-900">حول هذا الكورس التعليمي:</h4>
+                {course.teacherName && (
+                  <span className="text-xs bg-red-50 text-red-600 font-extrabold px-2.5 py-1 rounded-lg border border-red-100 flex items-center gap-1">
+                    <span>👨‍🏫 الأستاذ:</span>
+                    <strong>{course.teacherName}</strong>
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-gray-600 leading-relaxed">
                 {course.description}
               </p>

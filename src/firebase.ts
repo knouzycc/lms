@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { initializeFirestore } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import config from "../firebase-applet-config.json";
 
 // Detect if the configuration in firebase-applet-config.json contains placeholder values.
@@ -30,12 +30,16 @@ const databaseId = isPlaceholder
   ? "ai-studio-mathacademy-bbc8b538-0e13-4ccd-8453-52fd2d62a5e4" 
   : (config.firestoreDatabaseId || "remixed-firestore-database-id");
 
-// Initialize Firestore with specific database ID and enable long-polling
-// to prevent connection blockages in sandboxed iframe/proxy environments.
+// Initialize Firestore with specific database ID, enable long-polling
+// to prevent connection blockages in sandboxed iframe/proxy environments,
+// and configure offline persistence supporting multiple tabs.
 export const db = initializeFirestore(
   app,
   {
     experimentalForceLongPolling: true,
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager(),
+    }),
   },
   databaseId
 );

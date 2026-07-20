@@ -311,15 +311,31 @@ export default function Navbar({
                 </div>
 
                 {/* User Dropdown/Profile info */}
-                <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold border border-red-200 shadow-inner">
-                    {user.name.charAt(0)}
+                {user.role === "admin" || user.role === "teacher" ? (
+                  <button
+                    onClick={() => onChangeTab("admin-dashboard")}
+                    className="flex items-center gap-2 hover:bg-red-50/50 p-1.5 rounded-xl transition-all cursor-pointer border border-transparent hover:border-red-100 group text-right"
+                    title="الذهاب للوحة تحكم الإدارة 👑"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold border border-red-200 shadow-inner group-hover:bg-red-200">
+                      {user.name.charAt(0)}
+                    </div>
+                    <div className="text-right">
+                      <span className="block text-xs text-red-600 font-bold hover:underline">مرحباً بك (لوحة الإدارة 👑)</span>
+                      <span className="block text-sm font-bold text-gray-800 group-hover:text-red-700 transition-colors">{user.name}</span>
+                    </div>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold border border-red-200 shadow-inner">
+                      {user.name.charAt(0)}
+                    </div>
+                    <div className="text-right">
+                      <span className="block text-xs text-gray-400 font-medium">مرحباً بك</span>
+                      <span className="block text-sm font-bold text-gray-800">{user.name}</span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="block text-xs text-gray-400 font-medium">مرحباً بك</span>
-                    <span className="block text-sm font-bold text-gray-800">{user.name}</span>
-                  </div>
-                </div>
+                )}
 
                 {/* Logout Button */}
                 <button
@@ -434,15 +450,33 @@ export default function Navbar({
                 <span className="text-sm font-semibold text-gray-600">الرصيد في المحفظة:</span>
                 <span className="text-base font-bold text-red-600">{user.walletBalance} ج.م</span>
               </div>
-              <div className="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-xl">
-                <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold">
-                  {user.name.charAt(0)}
+              {user.role === "admin" || user.role === "teacher" ? (
+                <button
+                  onClick={() => {
+                    onChangeTab("admin-dashboard");
+                    setMobileMenuOpen(false);
+                  }}
+                  className="flex items-center gap-3 w-full px-3 py-2 bg-red-50/50 hover:bg-red-50 border border-red-100 hover:border-red-200 rounded-xl transition-all text-right cursor-pointer group"
+                >
+                  <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold group-hover:bg-red-200">
+                    {user.name.charAt(0)}
+                  </div>
+                  <div>
+                    <span className="block text-xs text-red-600 font-bold hover:underline">مرحباً بك (الذهاب للوحة التحكم 👑)</span>
+                    <span className="block text-sm font-bold text-gray-800 group-hover:text-red-700 transition-colors">{user.name}</span>
+                  </div>
+                </button>
+              ) : (
+                <div className="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-xl">
+                  <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold">
+                    {user.name.charAt(0)}
+                  </div>
+                  <div>
+                    <span className="block text-sm font-bold text-gray-800">{user.name}</span>
+                    <span className="block text-xs text-gray-500">{user.phone}</span>
+                  </div>
                 </div>
-                <div>
-                  <span className="block text-sm font-bold text-gray-800">{user.name}</span>
-                  <span className="block text-xs text-gray-500">{user.phone}</span>
-                </div>
-              </div>
+              )}
 
               {/* Mobile Notifications Expandable */}
               <div className="border-t border-gray-100 pt-3">

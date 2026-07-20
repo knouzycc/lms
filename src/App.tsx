@@ -127,11 +127,86 @@ export default function App() {
   const [isLoading, setIsLoading] = React.useState(true);
 
   // UI Control states
-  const [currentTab, setCurrentTab] = React.useState<string>("landing");
+  const getInitialStateFromUrl = React.useCallback(() => {
+    const path = window.location.pathname;
+    if (path === "/" || path === "") return { currentTab: "landing", studentTab: "courses" as const, adminTab: "students" as const };
+    if (path === "/about") return { currentTab: "landing-about", studentTab: "courses" as const, adminTab: "students" as const };
+    if (path === "/privacy") return { currentTab: "landing-privacy", studentTab: "courses" as const, adminTab: "students" as const };
+    if (path === "/terms") return { currentTab: "landing-terms", studentTab: "courses" as const, adminTab: "students" as const };
+    if (path === "/support") return { currentTab: "landing-support", studentTab: "courses" as const, adminTab: "students" as const };
+    
+    if (path.startsWith("/student")) {
+      const sub = path.replace("/student", "").replace("/", "");
+      const validStudentTabs = ["courses", "reports", "tickets", "profile", "store"];
+      if (validStudentTabs.includes(sub)) {
+        return { currentTab: "student-dashboard", studentTab: sub as any, adminTab: "students" as const };
+      }
+      return { currentTab: "student-dashboard", studentTab: "courses" as const, adminTab: "students" as const };
+    }
+
+    if (path.startsWith("/admin")) {
+      const sub = path.replace("/admin", "").replace("/", "");
+      const validAdminTabs = ["payments", "teachers", "students", "codes", "video", "settings", "tickets", "course-students", "books"];
+      if (validAdminTabs.includes(sub)) {
+        return { currentTab: "admin-dashboard", studentTab: "courses" as const, adminTab: sub as any };
+      }
+      return { currentTab: "admin-dashboard", studentTab: "courses" as const, adminTab: "students" as const };
+    }
+
+    return { currentTab: "landing", studentTab: "courses" as const, adminTab: "students" as const };
+  }, []);
+
+  const initialState = React.useMemo(() => getInitialStateFromUrl(), [getInitialStateFromUrl]);
+
+  const [currentTab, setCurrentTab] = React.useState<string>(initialState.currentTab);
+  const [studentTab, setStudentTab] = React.useState<"courses" | "reports" | "tickets" | "profile" | "store">(initialState.studentTab);
+  const [adminTab, setAdminTab] = React.useState<"payments" | "teachers" | "students" | "codes" | "video" | "settings" | "tickets" | "course-students" | "books">(initialState.adminTab);
+
   const [selectedCourseForDetail, setSelectedCourseForDetail] = React.useState<Course | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = React.useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = React.useState(false);
   const [isSubmittingInquiry, setIsSubmittingInquiry] = React.useState(false);
+
+  // Synchronize routing state with Browser Address Bar
+  React.useEffect(() => {
+    let targetPath = "/";
+    if (currentTab === "landing-about") targetPath = "/about";
+    else if (currentTab === "landing-privacy") targetPath = "/privacy";
+    else if (currentTab === "landing-terms") targetPath = "/terms";
+    else if (currentTab === "landing-support") targetPath = "/support";
+    else if (currentTab === "student-dashboard") {
+      if (user) {
+        targetPath = `/student/${studentTab}`;
+      } else {
+        targetPath = "/";
+      }
+    } else if (currentTab === "admin-dashboard") {
+      if (user && (user.role === "admin" || user.role === "teacher")) {
+        targetPath = `/admin/${adminTab}`;
+      } else {
+        targetPath = "/";
+      }
+    }
+
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState(null, "", targetPath);
+    }
+  }, [currentTab, studentTab, adminTab, user]);
+
+  // Handle browser back/forward buttons (Popstate)
+  React.useEffect(() => {
+    const handlePopState = () => {
+      const state = getInitialStateFromUrl();
+      setCurrentTab(state.currentTab);
+      setStudentTab(state.studentTab);
+      setAdminTab(state.adminTab);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [getInitialStateFromUrl]);
 
   // Dark Mode State
   const [darkMode, setDarkMode] = React.useState<boolean>(() => {
@@ -204,16 +279,52 @@ export default function App() {
             if (dbUser) {
               setUser(dbUser);
               if (dbUser.role === "admin" || dbUser.role === "teacher") {
-                setCurrentTab("admin-dashboard");
+                const urlState = getInitialStateFromUrl();
+                if (urlState.currentTab === "admin-dashboard") {
+                  setCurrentTab("admin-dashboard");
+                  setAdminTab(urlState.adminTab);
+                } else if (urlState.currentTab === "landing" || urlState.currentTab.startsWith("landing-")) {
+                  setCurrentTab(urlState.currentTab);
+                } else {
+                  setCurrentTab("admin-dashboard");
+                  setAdminTab("students");
+                }
               } else {
-                setCurrentTab("student-dashboard");
+                const urlState = getInitialStateFromUrl();
+                if (urlState.currentTab === "student-dashboard") {
+                  setCurrentTab("student-dashboard");
+                  setStudentTab(urlState.studentTab);
+                } else if (urlState.currentTab === "landing" || urlState.currentTab.startsWith("landing-")) {
+                  setCurrentTab(urlState.currentTab);
+                } else {
+                  setCurrentTab("student-dashboard");
+                  setStudentTab("courses");
+                }
               }
             } else {
               setUser(savedUser);
               if (savedUser.role === "admin" || savedUser.role === "teacher") {
-                setCurrentTab("admin-dashboard");
+                const urlState = getInitialStateFromUrl();
+                if (urlState.currentTab === "admin-dashboard") {
+                  setCurrentTab("admin-dashboard");
+                  setAdminTab(urlState.adminTab);
+                } else if (urlState.currentTab === "landing" || urlState.currentTab.startsWith("landing-")) {
+                  setCurrentTab(urlState.currentTab);
+                } else {
+                  setCurrentTab("admin-dashboard");
+                  setAdminTab("students");
+                }
               } else {
-                setCurrentTab("student-dashboard");
+                const urlState = getInitialStateFromUrl();
+                if (urlState.currentTab === "student-dashboard") {
+                  setCurrentTab("student-dashboard");
+                  setStudentTab(urlState.studentTab);
+                } else if (urlState.currentTab === "landing" || urlState.currentTab.startsWith("landing-")) {
+                  setCurrentTab(urlState.currentTab);
+                } else {
+                  setCurrentTab("student-dashboard");
+                  setStudentTab("courses");
+                }
               }
             }
           } catch (e) {
@@ -1278,7 +1389,7 @@ export default function App() {
           transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
           className="w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full mb-4"
         />
-        <p className="text-lg font-bold text-gray-700 animate-pulse">جاري تحميل المنصة وقاعدة البيانات...</p>
+        <p className="text-lg font-bold text-gray-700 animate-pulse">منصة اليسر ترحب بكم</p>
       </div>
     );
   }
@@ -1452,6 +1563,8 @@ export default function App() {
             books={books}
             bookOrders={bookOrders}
             onBuyBook={handleBuyBook}
+            activeTab={studentTab}
+            onChangeActiveTab={setStudentTab}
           />
         )}
 
@@ -1489,6 +1602,8 @@ export default function App() {
             onUpdateBookOrder={handleUpdateBookOrder}
             onAddBookStoreItem={handleAddBookStoreItem}
             onDeleteBookStoreItem={handleDeleteBookStoreItem}
+            activeTab={adminTab}
+            onChangeActiveTab={setAdminTab}
           />
         )}
       </main>
