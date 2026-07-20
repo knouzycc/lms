@@ -73,7 +73,7 @@ import {
   Tooltip,
   Legend
 } from "recharts";
-import { Course, PendingPayment, GradeLevel, CourseCategory, Teacher, ChargeCode, VideoSettings, PlatformSettings, AdCampaign, SupportTicket, TicketReply, LiveQuiz, LiveQuizParticipant, User, Question, Quiz, BookStoreItem, BookOrder } from "../types";
+import { Course, PendingPayment, GradeLevel, CourseCategory, Teacher, ChargeCode, VideoSettings, PlatformSettings, AdCampaign, SupportTicket, TicketReply, LiveQuiz, LiveQuizParticipant, User, Question, Quiz, BookStoreItem, BookOrder, Lecture } from "../types";
 import { fetchAllSupportTickets, saveSupportTicketInFirestore, fetchLiveQuizzes, saveLiveQuizInFirestore, deleteLiveQuizInFirestore, fetchAllUsers, backupAllCollections, clearAllDatabaseData } from "../lib/dbService";
 import {
   fetchYoutubeVideoDetails,
@@ -689,6 +689,20 @@ export default function AdminDashboard({
   const [editCourseGrade, setEditCourseGrade] = React.useState<GradeLevel>(GradeLevel.THIRD);
   const [editCourseCategory, setEditCourseCategory] = React.useState<CourseCategory>(CourseCategory.MATH);
   const [editCourseTeacherName, setEditCourseTeacherName] = React.useState("");
+
+  // Lecture Editing & Management States
+  const [editingLecture, setEditingLecture] = React.useState<Lecture | null>(null);
+  const [editingLectureCourseId, setEditingLectureCourseId] = React.useState<string>("");
+  const [editLecTitle, setEditLecTitle] = React.useState<string>("");
+  const [editLecDuration, setEditLecDuration] = React.useState<string>("");
+  const [editLecVideoUrl, setEditLecVideoUrl] = React.useState<string>("");
+  const [editLecPdfUrl, setEditLecPdfUrl] = React.useState<string>("");
+  const [editLecQuizEnabled, setEditLecQuizEnabled] = React.useState<boolean>(false);
+  const [editLecQuizTitle, setEditLecQuizTitle] = React.useState<string>("");
+  const [editLecQuizQuestions, setEditLecQuizQuestions] = React.useState<Question[]>([]);
+  const [lecUploadProgress, setLecUploadProgress] = React.useState<number | null>(null);
+  const [lecUploadedFile, setLecUploadedFile] = React.useState<{ name: string; size: string } | null>(null);
+  const [isDraggingLecVideo, setIsDraggingLecVideo] = React.useState<boolean>(false);
 
   const handleDeleteAd = (adId: string) => {
     setTempAds(prev => prev.filter(ad => ad.id !== adId));
@@ -2635,8 +2649,532 @@ https://www.youtube.com/watch?v=VideoID3"
                   )}
                 </div>
               </div>
-            </motion.div>
-          )}
+
+              {/* section: Manage Published Lectures */}
+              <div className="bg-white border border-gray-150 p-6 sm:p-8 rounded-3xl space-y-6 mt-8 pt-8 border-t">
+                <div className="border-b border-gray-150 pb-4">
+                  <h3 className="text-base font-black text-gray-900 flex items-center gap-2">
+                    <Settings className="w-5 h-5 text-red-600 animate-spin-slow" />
+                    <span>إدارة وتعديل وحذف المحاضرات المنشورة ⚙️</span>
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-1">
+                    اختر الكورس المستهدف لعرض محاضراته وتعديل بياناتها (العنوان، المدة، الروابط، الاختبار المرفق) أو حذفها نهائياً.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-1 text-right">
+                    <label className="block text-xs font-bold text-gray-700">اختر الكورس المنشور</label>
+                    <select
+                      value={selectedCourseId}
+                      onChange={(e) => {
+                        setSelectedCourseId(e.target.value);
+                        setEditingLecture(null); // reset editing state when changing course
+                      }}
+                      className="w-full md:w-1/2 px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-xs text-right outline-hidden focus:border-red-500 cursor-pointer"
+                    >
+                      <option value="">-- اختر الكورس لعرض محاضراته --</option>
+                      {courses.map((course) => (
+                        <option key={course.id} value={course.id}>
+                          [{gradeLabels[course.grade] || course.grade}] - {course.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {selectedCourseId && (() => {
+                    const course = courses.find(c => c.id === selectedCourseId);
+                    if (!course) return null;
+                    const lectures = course.lectures || [];
+
+                    if (lectures.length === 0) {
+                      return (
+                        <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl py-10 px-4 text-center text-xs text-gray-400 font-bold space-y-1">
+                          <Video className="w-8 h-8 text-slate-300 mx-auto" />
+                          <p className="text-slate-600 text-sm">لا توجد أي محاضرات منشورة في هذا الكورس حالياً</p>
+                          <p className="text-gray-400 text-[11px]">يمكنك إضافة محاضرات جديدة للكورس باستخدام النموذج بالأعلى.</p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-6">
+                        <div className="overflow-x-auto rounded-2xl border border-gray-150">
+                          <table className="w-full text-right border-collapse text-xs">
+                            <thead>
+                              <tr className="bg-slate-50 text-slate-700 font-bold border-b border-gray-150">
+                                <th className="px-4 py-3 text-center">#</th>
+                                <th className="px-4 py-3">عنوان المحاضرة</th>
+                                <th className="px-4 py-3">المدة</th>
+                                <th className="px-4 py-3">رابط الفيديو</th>
+                                <th className="px-4 py-3">الملف المرفق</th>
+                                <th className="px-4 py-3">الاختبار التفاعلي</th>
+                                <th className="px-4 py-3 text-center">العمليات</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 bg-white">
+                              {lectures.map((lecture, index) => (
+                                <tr key={lecture.id} className="hover:bg-slate-50/50 transition-colors">
+                                  <td className="px-4 py-3 text-center font-mono text-slate-500 font-bold">{index + 1}</td>
+                                  <td className="px-4 py-3 font-black text-slate-800">{lecture.title}</td>
+                                  <td className="px-4 py-3 font-medium text-slate-600">{lecture.duration}</td>
+                                  <td className="px-4 py-3 text-left font-mono text-[10px] text-gray-400 max-w-[150px] truncate" dir="ltr">
+                                    {lecture.videoUrl}
+                                  </td>
+                                  <td className="px-4 py-3 text-slate-500 truncate max-w-[120px]">{lecture.pdfUrl || "لا يوجد"}</td>
+                                  <td className="px-4 py-3">
+                                    {lecture.quiz ? (
+                                      <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded text-[10px] font-black">
+                                        ✅ {lecture.quiz.title} ({lecture.quiz.questions?.length || 0} أسئلة)
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-300 italic">لا يوجد اختبار</span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    <div className="inline-flex gap-1.5 justify-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingLecture(lecture);
+                                          setEditingLectureCourseId(course.id);
+                                          setEditLecTitle(lecture.title);
+                                          setEditLecDuration(lecture.duration);
+                                          setEditLecVideoUrl(lecture.videoUrl);
+                                          setEditLecPdfUrl(lecture.pdfUrl || "");
+                                          setEditLecQuizEnabled(!!lecture.quiz);
+                                          setEditLecQuizTitle(lecture.quiz?.title || "");
+                                          setEditLecQuizQuestions(lecture.quiz?.questions ? JSON.parse(JSON.stringify(lecture.quiz.questions)) : [{ id: "q-edit-1", text: "", options: ["", "", "", ""], correctAnswerIndex: 0, explanation: "" }]);
+                                          setLecUploadedFile(null);
+                                          setLecUploadProgress(null);
+                                          
+                                          // scroll to editing form
+                                          setTimeout(() => {
+                                            document.getElementById("edit-lecture-form-panel")?.scrollIntoView({ behavior: "smooth" });
+                                          }, 100);
+                                        }}
+                                        className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-extrabold px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-[10px] flex items-center gap-1"
+                                      >
+                                        <Edit className="w-3 h-3" />
+                                        <span>تعديل ⚙️</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          if (confirm(`هل أنت متأكد من حذف محاضرة "${lecture.title}" نهائياً من كورس "${course.title}"؟`)) {
+                                            const updatedLectures = course.lectures.filter(l => l.id !== lecture.id);
+                                            const updatedCourseObj: Course = {
+                                              ...course,
+                                              lecturesCount: updatedLectures.length,
+                                              lectures: updatedLectures
+                                            };
+                                            if (onUpdateCourse) {
+                                              const res = await onUpdateCourse(updatedCourseObj);
+                                              if (res.success) {
+                                                alert("تم حذف المحاضرة بنجاح من قاعدة البيانات! 🗑️");
+                                                setEditingLecture(null);
+                                              } else {
+                                                alert(res.message || "فشل حذف المحاضرة");
+                                              }
+                                            }
+                                          }
+                                        }}
+                                        className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-extrabold px-3 py-1.5 rounded-lg transition-colors cursor-pointer text-[10px] flex items-center gap-1"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                        <span>حذف 🗑️</span>
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Inline Editing Form Card */}
+                        {editingLecture && editingLectureCourseId === course.id && (
+                          <div id="edit-lecture-form-panel" className="bg-blue-50/50 border border-blue-200 p-6 sm:p-8 rounded-3xl space-y-6 text-right">
+                            <div className="flex justify-between items-center border-b border-blue-100 pb-3">
+                              <h4 className="text-xs font-black text-blue-900 flex items-center gap-1.5">
+                                <span>تعديل بيانات المحاضرة: <strong>{editingLecture.title}</strong></span>
+                              </h4>
+                              <button
+                                type="button"
+                                onClick={() => setEditingLecture(null)}
+                                className="text-blue-800 font-bold hover:underline text-xs cursor-pointer"
+                              >
+                                إلغاء التعديل ❌
+                              </button>
+                            </div>
+
+                            <form
+                              onSubmit={async (e) => {
+                                e.preventDefault();
+                                if (!editLecTitle.trim()) return;
+
+                                let editedQuizObj: Quiz | undefined = undefined;
+                                if (editLecQuizEnabled && editLecQuizTitle.trim()) {
+                                  editedQuizObj = {
+                                    id: editingLecture.quiz?.id || "quiz-" + Date.now(),
+                                    title: editLecQuizTitle.trim(),
+                                    questions: editLecQuizQuestions.map((q, qidx) => ({
+                                      id: q.id || `q-${Date.now()}-${qidx}`,
+                                      text: q.text.trim(),
+                                      options: q.options.map(opt => opt.trim()),
+                                      correctAnswerIndex: q.correctAnswerIndex,
+                                      explanation: q.explanation.trim()
+                                    }))
+                                  };
+                                }
+
+                                const updatedLectures = course.lectures.map(l => {
+                                  if (l.id === editingLecture.id) {
+                                    return {
+                                      ...l,
+                                      title: editLecTitle.trim(),
+                                      duration: editLecDuration.trim() || "1 ساعة",
+                                      videoUrl: editLecVideoUrl.trim(),
+                                      pdfUrl: editLecPdfUrl.trim() || "ملف الشرح المرفق.pdf",
+                                      quiz: editedQuizObj
+                                    };
+                                  }
+                                  return l;
+                                });
+
+                                const updatedCourseObj: Course = {
+                                  ...course,
+                                  lectures: updatedLectures
+                                };
+
+                                if (onUpdateCourse) {
+                                  const res = await onUpdateCourse(updatedCourseObj);
+                                  if (res.success) {
+                                    alert("تم حفظ تعديلات المحاضرة في قاعدة البيانات وتحديثها بنجاح! 🎉");
+                                    setEditingLecture(null);
+                                  } else {
+                                    alert(res.message || "حدث خطأ أثناء تعديل المحاضرة");
+                                  }
+                                }
+                              }}
+                              className="grid grid-cols-1 md:grid-cols-12 gap-6 items-end animate-fade-in"
+                            >
+                              <div className="md:col-span-6 space-y-2">
+                                <label className="block text-xs font-bold text-slate-700">عنوان المحاضرة</label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={editLecTitle}
+                                  onChange={(e) => setEditLecTitle(e.target.value)}
+                                  className="w-full px-3 py-2.5 bg-white border border-gray-250 rounded-xl text-xs text-right outline-hidden"
+                                />
+                              </div>
+
+                              <div className="md:col-span-3 space-y-2">
+                                <label className="block text-xs font-bold text-slate-700">مدة المحاضرة / الفيديو</label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={editLecDuration}
+                                  onChange={(e) => setEditLecDuration(e.target.value)}
+                                  className="w-full px-3 py-2.5 bg-white border border-gray-250 rounded-xl text-xs text-right outline-hidden"
+                                />
+                              </div>
+
+                              <div className="md:col-span-3 space-y-2">
+                                <label className="block text-xs font-bold text-slate-700">اسم ملزمة الشرح / الملف المرفق</label>
+                                <input
+                                  type="text"
+                                  value={editLecPdfUrl}
+                                  onChange={(e) => setEditLecPdfUrl(e.target.value)}
+                                  className="w-full px-3 py-2.5 bg-white border border-gray-250 rounded-xl text-xs text-right outline-hidden"
+                                />
+                              </div>
+
+                              {/* Drag & drop video inside editor */}
+                              <div className="md:col-span-12 space-y-2 text-right">
+                                <label className="block text-xs font-black text-slate-800">تحديث فيديو المحاضرة (Drag & Drop لرفع فيديو جديد) 🔒</label>
+                                <div
+                                  onDragOver={(e) => {
+                                    e.preventDefault();
+                                    setIsDraggingLecVideo(true);
+                                  }}
+                                  onDragLeave={() => setIsDraggingLecVideo(false)}
+                                  onDrop={(e) => {
+                                    e.preventDefault();
+                                    setIsDraggingLecVideo(false);
+                                    const files = e.dataTransfer.files;
+                                    if (files && files.length > 0) {
+                                      setLecUploadProgress(10);
+                                      const file = files[0];
+                                      const sizeInMB = (file.size / (1024 * 1024)).toFixed(1);
+                                      setLecUploadedFile({ name: file.name, size: `${sizeInMB} MB` });
+                                      
+                                      let currProg = 10;
+                                      const editInterval = setInterval(() => {
+                                        currProg += 15;
+                                        if (currProg >= 100) {
+                                          currProg = 100;
+                                          clearInterval(editInterval);
+                                          setLecUploadProgress(100);
+                                          const simulatedUrl = `https://yusr-cdn.com/secure-lectures/math-${Date.now()}-${file.name.replace(/\s+/g, "_")}`;
+                                          setEditLecVideoUrl(simulatedUrl);
+                                          setTimeout(() => setLecUploadProgress(null), 3000);
+                                        } else {
+                                          setLecUploadProgress(currProg);
+                                        }
+                                      }, 150);
+                                    }
+                                  }}
+                                  onClick={() => document.getElementById("edit-lecture-video-file-input")?.click()}
+                                  className={`border-2 border-dashed rounded-2xl p-5 text-center cursor-pointer transition-all ${
+                                    isDraggingLecVideo 
+                                      ? "border-red-500 bg-red-50/50 scale-[1.01]" 
+                                      : "border-gray-200 bg-white hover:border-red-500"
+                                  }`}
+                                >
+                                  <input
+                                    id="edit-lecture-video-file-input"
+                                    type="file"
+                                    accept="video/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const files = e.target.files;
+                                      if (files && files.length > 0) {
+                                        setLecUploadProgress(10);
+                                        const file = files[0];
+                                        const sizeInMB = (file.size / (1024 * 1024)).toFixed(1);
+                                        setLecUploadedFile({ name: file.name, size: `${sizeInMB} MB` });
+                                        
+                                        let currProg = 10;
+                                        const editInterval = setInterval(() => {
+                                          currProg += 15;
+                                          if (currProg >= 100) {
+                                            currProg = 100;
+                                            clearInterval(editInterval);
+                                            setLecUploadProgress(100);
+                                            const simulatedUrl = `https://yusr-cdn.com/secure-lectures/math-${Date.now()}-${file.name.replace(/\s+/g, "_")}`;
+                                            setEditLecVideoUrl(simulatedUrl);
+                                            setTimeout(() => setLecUploadProgress(null), 3000);
+                                          } else {
+                                            setLecUploadProgress(currProg);
+                                          }
+                                        }, 150);
+                                      }
+                                    }}
+                                  />
+
+                                  <div className="space-y-1">
+                                    <div className="text-xs">
+                                      <span className="font-black text-slate-800">اسحب وأسقط ملف فيديو لتحديث الفيديو الحالي</span> أو <span className="text-red-600 font-extrabold underline">تصفح ملفات جهازك</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {lecUploadProgress !== null && (
+                                  <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-1.5 text-right mt-2">
+                                    <div className="flex justify-between items-center text-[9px] font-black text-slate-700">
+                                      <span>جاري رفع وتأمين الفيديو الجديد: {lecUploadProgress}%</span>
+                                      <span className="font-mono">{lecUploadedFile?.size}</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 h-1 rounded-full overflow-hidden">
+                                      <div className="bg-blue-600 h-1 rounded-full transition-all duration-150" style={{ width: `${lecUploadProgress}%` }}></div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {lecUploadedFile && lecUploadProgress === 100 && (
+                                  <div className="p-2.5 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl text-[9px] font-extrabold flex items-center gap-1.5 mt-2">
+                                    <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span>تم تحديث ملف الفيديو بنجاح! 🔒</span>
+                                  </div>
+                                )}
+
+                                <div className="pt-2">
+                                  <label className="block text-[10px] text-gray-400 font-extrabold mb-1">رابط بث المحاضرة (يمكن تعديله يدوياً):</label>
+                                  <input
+                                    type="url"
+                                    required
+                                    value={editLecVideoUrl}
+                                    onChange={(e) => setEditLecVideoUrl(e.target.value)}
+                                    className="w-full px-3 py-2 bg-white border border-gray-250 rounded-xl text-xs text-left outline-hidden font-mono"
+                                    dir="ltr"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Quiz Editor inside Edit Lecture Form */}
+                              <div className="md:col-span-12 space-y-3 pt-2 text-right">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    id="edit-lecture-quiz-toggle"
+                                    type="checkbox"
+                                    checked={editLecQuizEnabled}
+                                    onChange={(e) => {
+                                      setEditLecQuizEnabled(e.target.checked);
+                                      if (e.target.checked && !editLecQuizTitle) {
+                                        setEditLecQuizTitle("اختبار تقييمي للمحاضرة");
+                                      }
+                                    }}
+                                    className="w-4 h-4 text-red-600 border-gray-350 rounded focus:ring-red-500 cursor-pointer"
+                                  />
+                                  <label htmlFor="edit-lecture-quiz-toggle" className="text-xs font-black text-slate-800 cursor-pointer flex items-center gap-1.5 select-none font-sans">
+                                    <CheckCircle className="w-4 h-4 text-slate-700" />
+                                    تفعيل / تعديل الاختبار التفاعلي لهذه المحاضرة 📝
+                                  </label>
+                                </div>
+
+                                {editLecQuizEnabled && (
+                                  <div className="p-5 bg-white border border-blue-100 rounded-2xl space-y-4">
+                                    <div className="space-y-1">
+                                      <label className="block text-xs font-black text-slate-700">اسم الاختبار التفاعلي</label>
+                                      <input
+                                        type="text"
+                                        required={editLecQuizEnabled}
+                                        placeholder="مثال: اختبار الفهم والاشتقاق"
+                                        value={editLecQuizTitle}
+                                        onChange={(e) => setEditLecQuizTitle(e.target.value)}
+                                        className="w-full px-3 py-2 bg-slate-50 border border-gray-200 rounded-xl text-xs text-right font-sans outline-hidden"
+                                      />
+                                    </div>
+
+                                    <div className="space-y-3 pt-2">
+                                      <span className="block text-xs font-black text-slate-800 border-b border-gray-100 pb-1.5">الأسئلة والتمارين الرياضية مضافة ({editLecQuizQuestions.length}):</span>
+                                      <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
+                                        {editLecQuizQuestions.map((q, qidx) => (
+                                          <div key={q.id} className="p-4 bg-slate-50/50 border border-gray-150 rounded-xl space-y-3 relative">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                if (editLecQuizQuestions.length <= 1) {
+                                                  alert("يجب أن يحتوي الاختبار على سؤال واحد على الأقل!");
+                                                  return;
+                                                }
+                                                setEditLecQuizQuestions(prev => prev.filter(item => item.id !== q.id));
+                                              }}
+                                              className="absolute top-3 left-3 text-rose-500 hover:text-rose-700 text-[10px] font-bold cursor-pointer"
+                                            >
+                                              حذف السؤال ❌
+                                            </button>
+
+                                            <div className="space-y-1">
+                                              <label className="text-[10px] text-gray-500 font-extrabold block">صيغة السؤال رقم {qidx + 1}</label>
+                                              <input
+                                                type="text"
+                                                required={editLecQuizEnabled}
+                                                value={q.text}
+                                                onChange={(e) => {
+                                                  const val = e.target.value;
+                                                  setEditLecQuizQuestions(prev => prev.map(item => item.id === q.id ? { ...item, text: val } : item));
+                                                }}
+                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs"
+                                              />
+                                            </div>
+
+                                            {/* Options */}
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                              {q.options.map((opt, oidx) => (
+                                                <div key={oidx} className="space-y-0.5">
+                                                  <label className="text-[9px] text-gray-400 block">الخيار {oidx === 0 ? "أ" : oidx === 1 ? "ب" : oidx === 2 ? "ج" : "د"}</label>
+                                                  <input
+                                                    type="text"
+                                                    required={editLecQuizEnabled}
+                                                    value={opt}
+                                                    onChange={(e) => {
+                                                      const val = e.target.value;
+                                                      setEditLecQuizQuestions(prev => prev.map(item => {
+                                                        if (item.id === q.id) {
+                                                          const opts = [...item.options];
+                                                          opts[oidx] = val;
+                                                          return { ...item, options: opts };
+                                                        }
+                                                        return item;
+                                                      }));
+                                                    }}
+                                                    className="w-full px-3 py-1.5 bg-white border border-gray-150 rounded-lg text-xs text-right"
+                                                  />
+                                                </div>
+                                              ))}
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                              <div>
+                                                <label className="text-[10px] text-gray-500 font-extrabold block mb-1">الخيار الصحيح للإجابة</label>
+                                                <select
+                                                  value={q.correctAnswerIndex}
+                                                  onChange={(e) => {
+                                                    const val = Number(e.target.value);
+                                                    setEditLecQuizQuestions(prev => prev.map(item => item.id === q.id ? { ...item, correctAnswerIndex: val } : item));
+                                                  }}
+                                                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-sans"
+                                                >
+                                                  <option value={0}>الخيار الأول (أ)</option>
+                                                  <option value={1}>الخيار الثاني (ب)</option>
+                                                  <option value={2}>الخيار الثالث (ج)</option>
+                                                  <option value={3}>الخيار الرابع (د)</option>
+                                                </select>
+                                              </div>
+
+                                              <div>
+                                                <label className="text-[10px] text-gray-500 font-extrabold block mb-1">شرح الحل النموذجي</label>
+                                                <input
+                                                  type="text"
+                                                  value={q.explanation}
+                                                  onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setEditLecQuizQuestions(prev => prev.map(item => item.id === q.id ? { ...item, explanation: val } : item));
+                                                  }}
+                                                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-right"
+                                                />
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditLecQuizQuestions(prev => [
+                                            ...prev,
+                                            { id: "q-edit-" + Date.now() + "-" + Math.random().toString(36).substr(2, 5), text: "", options: ["", "", "", ""], correctAnswerIndex: 0, explanation: "" }
+                                          ]);
+                                        }}
+                                        className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-extrabold px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer flex items-center gap-1 mt-2 border border-blue-100"
+                                      >
+                                        <Plus className="w-3.5 h-3.5" />
+                                        <span>إضافة سؤال جديد للاختبار ➕</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                                <div className="md:col-span-12 flex gap-3">
+                                  <button
+                                    type="submit"
+                                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl text-xs shadow-md transition-all cursor-pointer"
+                                  >
+                                    حفظ وتحديث المحاضرة 💾
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingLecture(null)}
+                                    className="px-6 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded-xl text-xs transition-all cursor-pointer"
+                                  >
+                                    إلغاء التراجع
+                                  </button>
+                                </div>
+                              </form>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </motion.div>
+            )}
 
           {activeTab === "students" && (
             <motion.div
