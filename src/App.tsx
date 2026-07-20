@@ -658,21 +658,14 @@ export default function App() {
       quiz,
     };
 
-    let updatedCourseObj: Course | null = null;
+    const updatedCourseObj: Course = {
+      ...course,
+      lecturesCount: (course.lecturesCount || 0) + 1,
+      lectures: [...(course.lectures || []), newLecture],
+    };
+
     setCourses((prevCourses) => {
-      const updated = prevCourses.map((c) => {
-        if (c.id === courseId) {
-          const u = {
-            ...c,
-            lecturesCount: (c.lecturesCount || 0) + 1,
-            lectures: [...(c.lectures || []), newLecture],
-          };
-          updatedCourseObj = u;
-          return u;
-        }
-        return c;
-      });
-      return updated;
+      return prevCourses.map((c) => (c.id === courseId ? updatedCourseObj : c));
     });
 
     // Synchronize modal state if open
@@ -687,9 +680,7 @@ export default function App() {
       });
     }
 
-    if (updatedCourseObj) {
-      await saveCourseInFirestore(updatedCourseObj);
-    }
+    await saveCourseInFirestore(updatedCourseObj);
 
     addNotification(
       "all", // broadcast to enrolled students, filtered in client
@@ -718,21 +709,14 @@ export default function App() {
       pdfUrl: data.pdfUrl || "مذكرة الشرح الجديدة.pdf",
     }));
 
-    let updatedCourseObj: Course | null = null;
+    const updatedCourseObj: Course = {
+      ...course,
+      lecturesCount: (course.lecturesCount || 0) + newLectures.length,
+      lectures: [...(course.lectures || []), ...newLectures],
+    };
+
     setCourses((prevCourses) => {
-      const updated = prevCourses.map((c) => {
-        if (c.id === courseId) {
-          const u = {
-            ...c,
-            lecturesCount: (c.lecturesCount || 0) + newLectures.length,
-            lectures: [...(c.lectures || []), ...newLectures],
-          };
-          updatedCourseObj = u;
-          return u;
-        }
-        return c;
-      });
-      return updated;
+      return prevCourses.map((c) => (c.id === courseId ? updatedCourseObj : c));
     });
 
     if (selectedCourseForDetail && selectedCourseForDetail.id === courseId) {
@@ -746,9 +730,7 @@ export default function App() {
       });
     }
 
-    if (updatedCourseObj) {
-      await saveCourseInFirestore(updatedCourseObj);
-    }
+    await saveCourseInFirestore(updatedCourseObj);
 
     addNotification(
       "all",
